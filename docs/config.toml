@@ -1,0 +1,20 @@
+# ~/.config/komar/config.toml — every setting is optional.
+
+# Delete effects to pick from (a different one each time):
+# burn, crumble, matrix, explode, decrypt, dust, beam, rain. Empty = all.
+effects = []
+
+# Turn delete animations off entirely.
+disable_effects = false
+
+# Animated logo on start.
+splash = true
+
+# Image for `kubectl debug` ephemeral containers (b / B on a pod).
+debug_image = "busybox:latest"
+
+# Lines per container fetched when logs open.
+log_tail = 500
+
+# "ru" or "en"; empty = from the system locale.
+language = ""
