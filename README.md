@@ -22,6 +22,22 @@ Kubernetes в терминале, в стиле [Omarchy](https://omarchy.org): 
  enter шелл · ^enter в окне · d удалить · s +- реплики · r restart · : kubectl · ? помощь
 ```
 
+## Скриншоты
+
+Тема ristretto, шрифт JetBrains Mono, тестовый кластер на KWOK. Рамка окна и обои дорисованы по настройкам Omarchy.
+
+![Сплэш при запуске](docs/screenshots/splash.png)
+
+![Логи с поиском](docs/screenshots/logs.jpg)
+
+![События с частотой](docs/screenshots/events.jpg)
+
+![Удаление пода с эффектом](docs/screenshots/delete.jpg)
+
+Все эффекты удаления (burn, crumble, explode, decrypt, dust, beam, rain, matrix):
+
+![Эффекты](docs/screenshots/effects.png)
+
 ## Что умеет
 
 - **Контексты из `~/.kube/config` на лету**: панель `[1]` или `C`. Файл kubeconfig не меняется, у kubectl остаётся свой current-context.
