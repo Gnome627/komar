@@ -217,3 +217,20 @@ func TestHotkeysIgnoreLayout(t *testing.T) {
 		t.Errorf("typed %q, want %q", e.String(), "в.")
 	}
 }
+
+func TestConfirmIgnoresLayout(t *testing.T) {
+	answer := func(text string) (closed, yes bool) {
+		c := &confirmModal{onYes: func(*Model) tea.Cmd { yes = true; return nil }}
+		closed, _ = c.update(&Model{}, tea.KeyPressMsg{Code: []rune(text)[0], Text: text})
+		return closed, yes
+	}
+	for text, want := range map[string][2]bool{
+		"y": {true, true}, "н": {true, true}, "Н": {true, true},
+		"n": {true, false}, "т": {true, false}, "й": {true, false},
+		"д": {false, false}, "x": {false, false},
+	} {
+		if closed, yes := answer(text); closed != want[0] || yes != want[1] {
+			t.Errorf("%q: closed=%v yes=%v, want %v", text, closed, yes, want)
+		}
+	}
+}

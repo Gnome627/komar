@@ -53,12 +53,13 @@ type confirmModal struct {
 }
 
 func (c *confirmModal) update(m *Model, k tea.KeyPressMsg) (bool, tea.Cmd) {
-	// Not hotkey(): here д and н are answers (да, нет), not key positions,
-	// and н sits on the y key.
-	switch k.String() {
-	case "y", "Y", "enter", "д", "Д":
+	// By key position like every other shortcut: with a Russian layout on,
+	// the y key types н and still means yes. Reading д and н as да and нет
+	// would clash with that (н is the y key), so they are not answers.
+	switch hotkey(k) {
+	case "y", "Y", "enter":
 		return true, c.onYes(m)
-	case "n", "N", "esc", "q", "н", "Н":
+	case "n", "N", "esc", "q":
 		return true, nil
 	}
 	return false, nil
