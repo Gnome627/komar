@@ -19,8 +19,12 @@ type geom struct {
 	ctxH, nsH, resH, relH int
 }
 
+// chromeH is the lines around the panels: the top bar, an empty line that
+// keeps the panels from sticking to it, and the bottom bar.
+const chromeH = 3
+
 func (m *Model) layout() geom {
-	g := geom{bodyH: max(m.h-2, 8)}
+	g := geom{bodyH: max(m.h-chromeH, 8)}
 	g.leftW = m.w * 36 / 100
 	if g.leftW < 34 {
 		g.leftW = 34
@@ -95,7 +99,7 @@ func (m *Model) View() tea.View {
 	}, "\n")
 	right := m.renderMain(g.rightW, g.bodyH)
 	body := joinColumns(left, right, g.leftW, g.rightW, g.bodyH)
-	screen := m.renderTopBar() + "\n" + body + "\n" + m.renderBottomBar()
+	screen := m.renderTopBar() + "\n\n" + body + "\n" + m.renderBottomBar()
 
 	if m.cmd != nil {
 		popup, _ := m.cmd.view(m, m.w)

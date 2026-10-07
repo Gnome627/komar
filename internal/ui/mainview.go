@@ -252,7 +252,7 @@ func (m *Model) onText(msg textMsg) tea.Cmd {
 	return nil
 }
 
-func (m *Model) mainHeight() int { return max(m.h-2-2, 1) }
+func (m *Model) mainHeight() int { return max(m.h-chromeH-2, 1) }
 
 func (m *Model) currentText() *textView {
 	switch m.tab {
