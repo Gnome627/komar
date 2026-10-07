@@ -296,7 +296,17 @@ func (m *Model) handleData(msg tea.Msg) tea.Cmd {
 		}
 		m.ctx, m.cancel = context.WithCancel(context.Background())
 		m.setNamespaces(msg.namespaces)
+		// The view saved by the previous run applies to the first connect
+		// only, and only when it is the same context and no -n was given.
+		last := m.restore
+		m.restore = nil
+		if last != nil && (last.Context != m.ctxName || m.opts.Namespace != "") {
+			last = nil
+		}
 		ns, ok := m.sess.Namespaces[m.ctxName]
+		if last != nil {
+			ns, ok = last.Namespace, true
+		}
 		if m.opts.Namespace != "" {
 			ns, ok = m.opts.Namespace, true
 			m.opts.Namespace = ""
@@ -310,10 +320,17 @@ func (m *Model) handleData(msg tea.Msg) tea.Cmd {
 				m.nsList.cursor = i
 			}
 		}
-		if ref, ok := m.sess.Kinds[m.ctxName]; ok {
+		ref, ok := m.sess.Kinds[m.ctxName]
+		if last != nil {
+			ref, ok = last.Kind, true
+		}
+		if ok {
 			if k, found := m.cl.KindFor(ref); found {
 				m.setKindQuiet(k)
 			}
+		}
+		if last != nil && last.Kind == m.kind().Ref() {
+			m.applyView(*last)
 		}
 		m.sess.Context = m.ctxName
 		m.sess.Save()
@@ -389,7 +406,24 @@ func (m *Model) handleData(msg tea.Msg) tea.Cmd {
 				}
 			}
 		}
+		restored := false
+		if want := m.pendingRel; want != "" {
+			m.pendingRel = ""
+			for i, r := range m.relRows() {
+				if r.Key() == want {
+					m.relList.cursor, restored = i, true
+				}
+			}
+			for i, c := range m.relContainers {
+				if m.relMode == relContainers && c.name == want {
+					m.relList.cursor, restored = i, true
+				}
+			}
+		}
 		m.relList.clamp(m.relLen(), m.relListHeight())
+		if restored {
+			return m.loadTab(false)
+		}
 		if m.target().key() != before && (m.focus == fRel || m.lastFocus == fRel) {
 			return m.loadTab(false)
 		}

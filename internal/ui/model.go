@@ -181,6 +181,8 @@ type Model struct {
 	relKey        string
 
 	pendingSelect string
+	pendingRel    string
+	restore       *state.View
 
 	tab      int
 	logs     logView
@@ -237,7 +239,11 @@ func New(opts Options) (*Model, error) {
 		events:    newEventsView(),
 	}
 	m.logs = newLogView(m.conf.LogTail)
+	m.restore = m.sess.Last
 	start := opts.Context
+	if start == "" && contains(ctxs, m.sess.Context) {
+		start = m.sess.Context
+	}
 	if start == "" {
 		start = kcfg.Current
 	}
@@ -530,6 +536,7 @@ func (m *Model) onTick() tea.Cmd {
 	if m.cl == nil || m.connecting != "" {
 		return tea.Batch(cmds...)
 	}
+	m.saveView()
 	cmds = append(cmds, m.loadResources())
 	if m.relKey != "" && m.relMode != relNone {
 		cmds = append(cmds, m.loadRelated())
@@ -848,8 +855,72 @@ func (m *Model) quit() tea.Cmd {
 		m.cancel()
 	}
 	m.sess.Context = m.ctxName
+	m.saveView()
 	m.sess.Save()
 	return tea.Quit
+}
+
+// --- last view -----------------------------------------------------------
+
+func (m *Model) snapshot() state.View {
+	v := state.View{
+		Context: m.ctxName, Namespace: m.ns, Kind: m.kind().Ref(),
+		Filter: m.resList.filter, Tab: m.tab, Focus: m.focus, LastFocus: m.lastFocus,
+	}
+	// The output tab holds the result of a command that is gone by the
+	// next start.
+	if v.Tab == tabOutput {
+		v.Tab = tabLogs
+	}
+	if r, ok := m.selectedRes(); ok {
+		v.Resource = r.Key()
+	}
+	switch m.relMode {
+	case relPods, relJobs:
+		if r, ok := m.selectedRel(); ok {
+			v.Related = r.Key()
+		}
+	case relContainers:
+		if m.relList.cursor < len(m.relContainers) {
+			v.Related = m.relContainers[m.relList.cursor].name
+		}
+	}
+	return v
+}
+
+// saveView remembers what is on screen. It runs on every tick, not only on
+// quit, because closing the terminal window kills komar without a chance
+// to save.
+func (m *Model) saveView() {
+	if m.cl == nil || m.connecting != "" || m.connErr != "" || m.resTable == nil {
+		return
+	}
+	if m.restore != nil || m.pendingSelect != "" || m.pendingRel != "" {
+		return
+	}
+	v := m.snapshot()
+	if m.sess.Last != nil && *m.sess.Last == v {
+		return
+	}
+	m.sess.Last = &v
+	m.sess.Save()
+}
+
+// applyView brings back the view saved by the previous run; the selection
+// itself lands when the tables arrive.
+func (m *Model) applyView(v state.View) {
+	if v.Tab >= 0 && v.Tab < tabCount {
+		m.tab = v.Tab
+	}
+	if v.Focus >= fMain && v.Focus <= fRel {
+		m.focus = v.Focus
+	}
+	if v.LastFocus > fMain && v.LastFocus <= fRel {
+		m.lastFocus = v.LastFocus
+	}
+	m.resList.filter = v.Filter
+	m.pendingSelect = v.Resource
+	m.pendingRel = v.Related
 }
 
 func (m *Model) refreshAll() tea.Cmd {

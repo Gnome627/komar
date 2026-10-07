@@ -1,5 +1,5 @@
 // Package state keeps what komar remembers between runs (command history,
-// last namespace per context) and the optional user config.
+// last namespace per context, the last view) and the optional user config.
 package state
 
 import (
@@ -108,6 +108,21 @@ type Session struct {
 	Namespaces map[string]string `json:"namespaces"`
 	Context    string            `json:"context"`
 	Kinds      map[string]string `json:"kinds"`
+	Last       *View             `json:"last,omitempty"`
+}
+
+// View is what was on screen when komar was last open, so the next start
+// can pick up where it left off.
+type View struct {
+	Context   string `json:"context"`
+	Namespace string `json:"namespace"`
+	Kind      string `json:"kind"`
+	Resource  string `json:"resource,omitempty"`
+	Related   string `json:"related,omitempty"`
+	Filter    string `json:"filter,omitempty"`
+	Tab       int    `json:"tab"`
+	Focus     int    `json:"focus"`
+	LastFocus int    `json:"last_focus"`
 }
 
 func sessionPath() string { return filepath.Join(stateDir(), "session.json") }

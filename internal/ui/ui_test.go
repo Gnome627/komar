@@ -4,8 +4,10 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gnome627/komar/internal/kube"
+	"github.com/gnome627/komar/internal/state"
 )
 
 func TestInjectFlags(t *testing.T) {
@@ -76,5 +78,32 @@ func TestRelMode(t *testing.T) {
 		if got := relModeFor(k); got != want {
 			t.Errorf("%s: %v, want %v", res, got, want)
 		}
+	}
+}
+
+func TestViewRoundTrip(t *testing.T) {
+	rows := []kube.Row{{Namespace: "api", Name: "web"}, {Namespace: "api", Name: "worker"}}
+	m := &Model{
+		ctxName: "prod", ns: "api", kinds: append([]kube.Kind{}, kube.Builtin...),
+		hidden:   map[string]time.Time{},
+		resTable: &kube.Table{Rows: rows},
+		resList:  listState{cursor: 1, filter: "w"},
+		tab:      tabOutput, focus: fMain, lastFocus: fRel,
+	}
+	v := m.snapshot()
+	if v.Resource != "api/worker" || v.Tab != tabLogs || v.Context != "prod" || v.Namespace != "api" {
+		t.Fatalf("snapshot: %+v", v)
+	}
+	v.Tab = tabYAML
+	n := &Model{}
+	n.applyView(v)
+	if n.tab != tabYAML || n.focus != fMain || n.lastFocus != fRel || n.pendingSelect != "api/worker" || n.resList.filter != "w" {
+		t.Errorf("applyView: tab=%d focus=%d last=%d select=%q filter=%q", n.tab, n.focus, n.lastFocus, n.pendingSelect, n.resList.filter)
+	}
+	// Values from a damaged or older session file must not break the UI.
+	n = &Model{focus: fRes, lastFocus: fRes}
+	n.applyView(state.View{Tab: 99, Focus: -1, LastFocus: 0})
+	if n.tab != 0 || n.focus != fRes || n.lastFocus != fRes {
+		t.Errorf("out of range view applied: tab=%d focus=%d last=%d", n.tab, n.focus, n.lastFocus)
 	}
 }
