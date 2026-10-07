@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/gnome627/komar/internal/kube"
 	"github.com/gnome627/komar/internal/state"
 )
@@ -178,5 +180,40 @@ func TestDyingRows(t *testing.T) {
 	m.bury("uid-worker")
 	if got, ok := m.selectedRes(); !ok || got.Name != "web" {
 		t.Errorf("cursor fell off the list: %q %v", got.Name, ok)
+	}
+}
+
+func TestHotkeysIgnoreLayout(t *testing.T) {
+	if a, b := len([]rune(cyrKeys)), len([]rune(latKeys)); a != b {
+		t.Fatalf("layout tables differ in length: %d and %d", a, b)
+	}
+	press := func(text string, mod tea.KeyMod) tea.KeyPressMsg {
+		r := []rune(text)[0]
+		if mod != 0 {
+			return tea.KeyPressMsg{Code: r, Mod: mod}
+		}
+		return tea.KeyPressMsg{Code: r, Text: text}
+	}
+	cases := []struct {
+		k    tea.KeyPressMsg
+		want string
+	}{
+		{press("в", 0), "d"}, {press("В", 0), "D"}, {press("й", 0), "q"}, {press("д", 0), "l"},
+		{press("х", 0), "["}, {press("ъ", 0), "]"}, {press("Ж", 0), ":"}, {press(".", 0), "/"}, {press(",", 0), "?"},
+		{press("ц", tea.ModCtrl), "ctrl+w"}, {press("к", tea.ModCtrl), "ctrl+r"},
+		{press("d", 0), "d"}, {press("5", 0), "5"}, {press("+", 0), "+"},
+		{tea.KeyPressMsg{Code: tea.KeyEnter}, "enter"}, {tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModCtrl}, "ctrl+enter"},
+	}
+	for _, c := range cases {
+		if got := hotkey(c.k); got != c.want {
+			t.Errorf("%q: got %q, want %q", c.k.String(), got, c.want)
+		}
+	}
+	// Typing Russian into an input still gives Russian.
+	e := newLineEdit("")
+	e.Handle(press("в", 0))
+	e.Handle(press(".", 0))
+	if e.String() != "в." {
+		t.Errorf("typed %q, want %q", e.String(), "в.")
 	}
 }

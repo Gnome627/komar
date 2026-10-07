@@ -53,6 +53,8 @@ type confirmModal struct {
 }
 
 func (c *confirmModal) update(m *Model, k tea.KeyPressMsg) (bool, tea.Cmd) {
+	// Not hotkey(): here д and н are answers (да, нет), not key positions,
+	// and н sits on the y key.
 	switch k.String() {
 	case "y", "Y", "enter", "д", "Д":
 		return true, c.onYes(m)
@@ -81,7 +83,7 @@ type infoModal struct {
 }
 
 func (i *infoModal) update(m *Model, k tea.KeyPressMsg) (bool, tea.Cmd) {
-	if i.debugHint && k.String() == "b" {
+	if i.debugHint && hotkey(k) == "b" {
 		// From the "no shell" hint: jump straight to a debug container.
 		return true, m.startDebug(m.target(), false)
 	}
@@ -112,7 +114,7 @@ type scaleModal struct {
 }
 
 func (sm *scaleModal) update(m *Model, k tea.KeyPressMsg) (bool, tea.Cmd) {
-	switch key := k.String(); key {
+	switch key := hotkey(k); key {
 	case "esc", "q":
 		return true, nil
 	case "up", "k", "+", "=", "right", "l":
@@ -226,7 +228,7 @@ func fuzzy(s, pat string) bool {
 }
 
 func (p *pickerModal) update(m *Model, k tea.KeyPressMsg) (bool, tea.Cmd) {
-	switch k.String() {
+	switch hotkey(k) {
 	case "esc":
 		return true, nil
 	case "enter":
@@ -370,7 +372,7 @@ type helpModal struct{ top int }
 func newHelpModal(m *Model) *helpModal { return &helpModal{} }
 
 func (h *helpModal) update(m *Model, k tea.KeyPressMsg) (bool, tea.Cmd) {
-	switch k.String() {
+	switch hotkey(k) {
 	case "j", "down":
 		h.top++
 	case "k", "up":

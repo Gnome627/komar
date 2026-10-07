@@ -80,7 +80,7 @@ func (e *eventsView) move(d int) {
 }
 
 func (e *eventsView) handleKey(m *Model, k tea.KeyPressMsg) (bool, tea.Cmd) {
-	switch k.String() {
+	switch hotkey(k) {
 	case "g", "home":
 		e.cursor = 0
 	case "G", "end":

@@ -621,7 +621,7 @@ func (m *Model) handleWheel(msg tea.MouseWheelMsg) tea.Cmd {
 }
 
 func (m *Model) handleKey(k tea.KeyPressMsg) tea.Cmd {
-	key := k.String()
+	key := hotkey(k)
 	if m.splash != nil {
 		m.splash = nil
 		return nil
@@ -770,7 +770,7 @@ func (m *Model) handleKey(k tea.KeyPressMsg) tea.Cmd {
 func (m *Model) handleListKey(k tea.KeyPressMsg, l *listState, n int, onEnter func() tea.Cmd, onFilter func()) tea.Cmd {
 	page := max(m.h/3, 5)
 	before := l.cursor
-	switch k.String() {
+	switch hotkey(k) {
 	case "j", "down":
 		l.move(1, n)
 	case "k", "up":
@@ -802,7 +802,7 @@ func (m *Model) handleListKey(k tea.KeyPressMsg, l *listState, n int, onEnter fu
 // handleTargetKey runs actions on the current target.
 func (m *Model) handleTargetKey(k tea.KeyPressMsg) (tea.Cmd, bool) {
 	t := m.target()
-	switch k.String() {
+	switch hotkey(k) {
 	case "l":
 		m.tab = tabLogs
 		return m.loadTab(true), true
@@ -968,7 +968,7 @@ func (m *Model) startFilter(l *listState) {
 
 func (m *Model) handlePrompt(k tea.KeyPressMsg) tea.Cmd {
 	p := m.prompt
-	switch k.String() {
+	switch hotkey(k) {
 	case "esc":
 		if p.onCancel != nil {
 			p.onCancel(m)

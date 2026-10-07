@@ -285,7 +285,7 @@ func (m *Model) scrollMain(d int) {
 // handleMainKey handles keys while the main panel has focus.
 func (m *Model) handleMainKey(k tea.KeyPressMsg) (bool, tea.Cmd) {
 	h := m.mainHeight()
-	key := k.String()
+	key := hotkey(k)
 	switch key {
 	case "[", "h", "left", "shift+left":
 		m.tab = (m.tab + tabCount - 1) % tabCount
@@ -450,7 +450,7 @@ func (r *rolloutView) move(d int) {
 }
 
 func (r *rolloutView) handleKey(m *Model, k tea.KeyPressMsg) (bool, tea.Cmd) {
-	switch k.String() {
+	switch hotkey(k) {
 	case "g":
 		r.cursor = 0
 	case "G":

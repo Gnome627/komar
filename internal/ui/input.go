@@ -3,6 +3,7 @@ package ui
 import (
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -25,9 +26,40 @@ func (e *lineEdit) Set(s string) {
 	e.pos = len(e.val)
 }
 
+// Keys of the ЙЦУКЕН layout by the QWERTY key they sit on.
+const (
+	cyrKeys = "йцукенгшщзхъфывапролджэячсмитьбюёЙЦУКЕНГШЩЗХЪФЫВАПРОЛДЖЭЯЧСМИТЬБЮЁіїєґІЇЄҐў"
+	latKeys = "qwertyuiop[]asdfghjkl;'zxcvbnm,.`QWERTYUIOP{}ASDFGHJKL:\"ZXCVBNM<>~s]'\\S}\"|o"
+)
+
+var keyPositions = func() map[rune]rune {
+	m := map[rune]rune{}
+	lat := []rune(latKeys)
+	for i, r := range []rune(cyrKeys) {
+		m[r] = lat[i]
+	}
+	// The / and ? key gives . and , in ЙЦУКЕН. Neither is a shortcut of its
+	// own, so they open search and help in any layout.
+	m['.'], m[','] = '/', '?'
+	return m
+}()
+
+// hotkey names a key press the way shortcuts are written, by the position
+// of the key rather than the letter the current layout puts on it: with a
+// Russian layout on, в is "d" and ctrl+ц is "ctrl+w". Text typed into an
+// input still comes from k.Text.
+func hotkey(k tea.KeyPressMsg) string {
+	s := k.String()
+	r, size := utf8.DecodeLastRuneInString(s)
+	if l, ok := keyPositions[r]; ok && (size == len(s) || s[len(s)-size-1] == '+') {
+		return s[:len(s)-size] + string(l)
+	}
+	return s
+}
+
 // Handle applies an editing key; it returns false for keys it doesn't use.
 func (e *lineEdit) Handle(k tea.KeyPressMsg) bool {
-	switch k.String() {
+	switch hotkey(k) {
 	case "left", "ctrl+b":
 		if e.pos > 0 {
 			e.pos--

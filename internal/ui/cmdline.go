@@ -63,7 +63,7 @@ func (m *Model) openCmdLine(initial string) {
 }
 
 func (c *cmdLine) handle(m *Model, k tea.KeyPressMsg) tea.Cmd {
-	switch k.String() {
+	switch hotkey(k) {
 	case "esc", "ctrl+g":
 		if c.suggIdx >= 0 {
 			c.suggIdx = -1

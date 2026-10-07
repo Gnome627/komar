@@ -283,7 +283,7 @@ func (l *logView) scroll(d, h int) {
 
 func (l *logView) handleKey(m *Model, k tea.KeyPressMsg) (bool, tea.Cmd) {
 	h := m.mainHeight()
-	switch k.String() {
+	switch hotkey(k) {
 	case "g", "home":
 		l.follow = false
 		l.top = 0
