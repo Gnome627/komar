@@ -734,7 +734,7 @@ func (m *Model) handleKey(k tea.KeyPressMsg) tea.Cmd {
 		return m.handleListKey(k, &m.resList, len(m.resRows()), func() tea.Cmd {
 			t := m.resTarget()
 			if t.kind.Resource == "pods" {
-				return m.startExec(t, false)
+				return m.startExec(t)
 			}
 			if m.relMode != relNone {
 				return m.setFocus(fRel)
@@ -751,7 +751,7 @@ func (m *Model) handleKey(k tea.KeyPressMsg) tea.Cmd {
 		return m.handleListKey(k, &m.relList, m.relLen(), func() tea.Cmd {
 			t := m.target()
 			if t.kind.Resource == "pods" {
-				return m.startExec(t, false)
+				return m.startExec(t)
 			}
 			m.tab = tabDescribe
 			return tea.Batch(m.setFocus(fMain), m.loadTab(true))
@@ -824,10 +824,8 @@ func (m *Model) handleTargetKey(k tea.KeyPressMsg) (tea.Cmd, bool) {
 	case "L":
 		m.askSelector()
 		return nil, true
-	case "ctrl+enter", "X", "ctrl+j":
-		return m.startExec(t, true), true
-	case "x":
-		return m.startExec(t, false), true
+	case "x", "X", "ctrl+enter", "ctrl+j":
+		return m.startExec(t), true
 	case "b":
 		return m.startDebug(t, false), true
 	case "B":

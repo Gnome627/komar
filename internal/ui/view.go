@@ -228,7 +228,7 @@ func (m *Model) hints() string {
 	case fRes, fRel:
 		t := m.target()
 		if t.kind.Resource == "pods" {
-			parts = append(parts, k("enter", tr("shell", "шелл")), k("^enter", tr("new window", "в окне")), k("b", "debug"))
+			parts = append(parts, k("enter", tr("shell", "шелл")), k("b", "debug"))
 		} else if m.relMode != relNone && m.focus == fRes {
 			parts = append(parts, k("enter", tr("open", "открыть")))
 		}

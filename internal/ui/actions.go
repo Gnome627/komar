@@ -453,13 +453,15 @@ func (m *Model) execPod(t target) (target, bool) {
 	return target{}, false
 }
 
-func (m *Model) startExec(t target, newWin bool) tea.Cmd {
+// startExec opens a shell in the pod. It always goes to its own floating
+// terminal window, so komar stays on screen next to it.
+func (m *Model) startExec(t target) tea.Cmd {
 	pod, ok := m.execPod(t)
 	if !ok || m.cl == nil {
 		m.setError(i18n.T("exec.no_pod"))
 		return nil
 	}
-	return m.checkAccess(pod, newWin, false)
+	return m.checkAccess(pod, true, false)
 }
 
 func (m *Model) startDebug(t target, newWin bool) tea.Cmd {
@@ -554,20 +556,16 @@ func (m *Model) runExec(t target, newWin bool) tea.Cmd {
 	return m.runInteractive(t, shell.ExecArgs(m.ctxName, t.ns, t.name, t.container), newWin, false)
 }
 
-// runInteractive runs kubectl with the terminal: here (komar steps aside
-// until it exits) or in a new terminal window.
+// runInteractive runs kubectl with the terminal: in a new terminal window,
+// or here (komar steps aside until it exits) when that isn't asked for or
+// no terminal emulator can be found.
 func (m *Model) runInteractive(t target, args []string, newWin, debug bool) tea.Cmd {
 	k, err := shell.Kubectl()
 	if err != nil {
 		m.setError(err.Error())
 		return nil
 	}
-	if newWin {
-		term, err := shell.FindTerminal()
-		if err != nil {
-			m.setError(i18n.T("exec.no_terminal"))
-			return nil
-		}
+	if term, err := shell.FindTerminal(); newWin && err == nil {
 		if err := term.Launch(m.cl.KubectlEnv(), append([]string{k}, args...)); err != nil {
 			m.setError(err.Error())
 			return nil

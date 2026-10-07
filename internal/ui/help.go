@@ -35,9 +35,8 @@ func helpSections() []helpSection {
 				{"q  ctrl+c", "выход"},
 			}},
 			{"Действия с выбранным", [][2]string{
-				{"enter", "под: зайти в шелл; остальное: открыть"},
-				{"ctrl+enter  X", "шелл пода в новом окне терминала"},
-				{"x", "шелл пода здесь"},
+				{"enter", "под: шелл в отдельном окне; остальное: открыть"},
+				{"x", "шелл пода в отдельном окне"},
 				{"b  B", "kubectl debug (ephemeral-контейнер) здесь / в новом окне"},
 				{"d", "удалить (с эффектом)"},
 				{"D", "удалить принудительно (grace 0)"},
@@ -92,9 +91,8 @@ func helpSections() []helpSection {
 			{"q  ctrl+c", "quit"},
 		}},
 		{"Actions on the selection", [][2]string{
-			{"enter", "pod: open a shell; others: drill in"},
-			{"ctrl+enter  X", "pod shell in a new terminal window"},
-			{"x", "pod shell here"},
+			{"enter", "pod: shell in its own window; others: drill in"},
+			{"x", "pod shell in its own window"},
 			{"b  B", "kubectl debug (ephemeral container) here / new window"},
 			{"d", "delete (with an effect)"},
 			{"D", "force delete (grace 0)"},
