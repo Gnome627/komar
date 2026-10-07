@@ -668,9 +668,9 @@ func (m *Model) renderMain(w, h int) string {
 			tabs = append(tabs, s.TabIdle.Render(label))
 		}
 	}
-	num := s.Dim.Render("[0]")
+	num := s.Dim.Render("[5]")
 	if focused {
-		num = s.AccentBold.Render("[0]")
+		num = s.AccentBold.Render("[5]")
 	}
 	title := num + " " + strings.Join(tabs, s.Muted.Render(" │ "))
 	innerW := w - 2

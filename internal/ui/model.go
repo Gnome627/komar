@@ -649,7 +649,7 @@ func (m *Model) handleKey(k tea.KeyPressMsg) tea.Cmd {
 		return m.setFocus((m.focus + 1) % 5)
 	case "shift+tab":
 		return m.setFocus((m.focus + 4) % 5)
-	case "0":
+	case "5":
 		return m.setFocus(fMain)
 	case "1":
 		return m.setFocus(fCtx)

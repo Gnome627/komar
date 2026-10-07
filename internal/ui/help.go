@@ -16,7 +16,7 @@ func helpSections() []helpSection {
 	if i18n.Current() == i18n.RU {
 		return []helpSection{
 			{"Навигация", [][2]string{
-				{"1 2 3 4 / 0", "панели: контекст, неймспейс, ресурсы, связанные / главная"},
+				{"1 2 3 4 5", "панели: контекст, неймспейс, ресурсы, связанные, главная"},
 				{"tab  shift+tab", "следующая / предыдущая панель"},
 				{"j k  ↑ ↓", "вверх / вниз"},
 				{"g G", "в начало / в конец"},
@@ -73,7 +73,7 @@ func helpSections() []helpSection {
 	}
 	return []helpSection{
 		{"Navigation", [][2]string{
-			{"1 2 3 4 / 0", "panels: context, namespace, resources, related / main"},
+			{"1 2 3 4 5", "panels: context, namespace, resources, related, main"},
 			{"tab  shift+tab", "next / previous panel"},
 			{"j k  ↑ ↓", "up / down"},
 			{"g G", "top / bottom"},
