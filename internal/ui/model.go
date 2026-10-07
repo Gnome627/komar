@@ -217,6 +217,10 @@ type Model struct {
 	podUsageOf string
 	warnings   int
 
+	hits    []hit // clickable spots of the last drawn screen
+	clickAt time.Time
+	clickY  int
+
 	nameCache    map[string][]string
 	pendingNames []tea.Cmd
 	lastTick     time.Time
@@ -288,11 +292,11 @@ func (m *Model) Init() tea.Cmd {
 // --- status line ---------------------------------------------------------
 
 func (m *Model) setStatus(s string) {
-	m.status, m.statusErr, m.statusAt = s, false, time.Now()
+	m.status, m.statusErr, m.statusAt = clean(s), false, time.Now()
 }
 
 func (m *Model) setError(s string) {
-	m.status, m.statusErr, m.statusAt = s, true, time.Now()
+	m.status, m.statusErr, m.statusAt = clean(s), true, time.Now()
 }
 
 // --- kinds ---------------------------------------------------------------
@@ -592,6 +596,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+	case tea.MouseClickMsg:
+		return m, m.handleClick(msg)
 	case tea.MouseWheelMsg:
 		return m, m.handleWheel(msg)
 	case tickMsg:
@@ -600,24 +606,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.onFrame()
 	}
 	return m, m.handleData(msg)
-}
-
-func (m *Model) handleWheel(msg tea.MouseWheelMsg) tea.Cmd {
-	d := 3
-	if msg.Button == tea.MouseWheelUp {
-		d = -3
-	}
-	switch m.focus {
-	case fMain:
-		m.scrollMain(d)
-	case fRes:
-		m.resList.move(d, len(m.resRows()))
-		return m.onSelectionChanged()
-	case fRel:
-		m.relList.move(d, m.relLen())
-		return m.loadTab(false)
-	}
-	return nil
 }
 
 func (m *Model) handleKey(k tea.KeyPressMsg) tea.Cmd {
@@ -799,28 +787,37 @@ func (m *Model) handleListKey(k tea.KeyPressMsg, l *listState, n int, onEnter fu
 	return nil
 }
 
+// showTab switches the main panel to a tab. A narrow window shows one
+// column at a time, so the main panel has to take the focus to be seen.
+func (m *Model) showTab(tab int) tea.Cmd {
+	m.tab = tab
+	var focus tea.Cmd
+	if m.single() {
+		focus = m.setFocus(fMain)
+	}
+	if tab == tabOutput {
+		return focus
+	}
+	return tea.Batch(m.loadTab(true), focus)
+}
+
 // handleTargetKey runs actions on the current target.
 func (m *Model) handleTargetKey(k tea.KeyPressMsg) (tea.Cmd, bool) {
 	t := m.target()
 	switch hotkey(k) {
 	case "l":
-		m.tab = tabLogs
-		return m.loadTab(true), true
+		return m.showTab(tabLogs), true
 	case "i":
-		m.tab = tabDescribe
-		return m.loadTab(true), true
+		return m.showTab(tabDescribe), true
 	case "y":
-		m.tab = tabYAML
-		return m.loadTab(true), true
+		return m.showTab(tabYAML), true
 	case "e":
-		m.tab = tabEvents
-		return m.loadTab(true), true
+		return m.showTab(tabEvents), true
 	case "u":
 		m.tab = tabRollout
 		return tea.Batch(m.loadTab(true), m.setFocus(fMain)), true
 	case "o":
-		m.tab = tabOutput
-		return nil, true
+		return m.showTab(tabOutput), true
 	case "L":
 		m.askSelector()
 		return nil, true

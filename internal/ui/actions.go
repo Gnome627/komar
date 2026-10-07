@@ -201,7 +201,7 @@ func (m *Model) startDeleteEffect(t target, panel int) bool {
 	default:
 		return false
 	}
-	if rowY < 1 || rowY >= h-1 {
+	if w < 4 || rowY < 1 || rowY >= h-1 {
 		return false
 	}
 	name := fx.Pick(m.conf.Effects)

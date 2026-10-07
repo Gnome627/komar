@@ -130,6 +130,7 @@ func (e *lineEdit) Paste(s string) {
 
 // View renders the text with a block cursor, scrolled to fit w cells.
 func (e *lineEdit) View(s Styles, w int) string {
+	w = max(w, 2)
 	start := 0
 	if e.pos >= w-1 {
 		start = e.pos - w + 2

@@ -29,7 +29,10 @@ type textView struct {
 }
 
 func (v *textView) set(content string) {
-	v.lines = strings.Split(strings.TrimRight(strings.ReplaceAll(content, "\t", "    "), "\n"), "\n")
+	v.lines = strings.Split(strings.TrimRight(content, "\r\n"), "\n")
+	for i, l := range v.lines {
+		v.lines[i] = clean(l)
+	}
 	v.err = ""
 	v.loading = false
 	v.reindex()
@@ -93,7 +96,7 @@ func (v *textView) render(s Styles, w, h int, colorize func(string) string) []st
 	}
 	var out []string
 	if v.err != "" {
-		out = append(out, s.Red.Render(" "+v.err))
+		out = errLines(s, v.err, w)
 	}
 	for i := v.top; i < len(v.lines) && len(out) < h; i++ {
 		l := v.lines[i]
@@ -480,7 +483,7 @@ func (r *rolloutView) render(m *Model, w, h int) []string {
 	}
 	var out []string
 	if r.err != "" {
-		out = append(out, s.Red.Render(" "+r.err))
+		out = errLines(s, r.err, w)
 	}
 	st := r.status
 	barW := max(min(w-24, 50), 10)
@@ -502,7 +505,9 @@ func (r *rolloutView) render(m *Model, w, h int) []string {
 		out = append(out, bar(i18n.T("rollout.old"), st.Old, max64(st.Desired, st.Old), s.Yellow.Render))
 	}
 	if st.Message != "" {
-		out = append(out, "  "+s.Red.Render(st.Message))
+		for _, l := range wrap(st.Message, w-4) {
+			out = append(out, "  "+s.Red.Render(l))
+		}
 	}
 	out = append(out, "", "  "+s.AccentBold.Render(i18n.T("rollout.history"))+"  "+s.Dim.Render(i18n.T("rollout.hint")))
 	if len(r.history) == 0 {
@@ -519,10 +524,10 @@ func (r *rolloutView) render(m *Model, w, h int) []string {
 		line := fmt.Sprintf("%s%s %-4d %-5s %s", mark, s.Dim.Render(i18n.T("rollout.revision")), rev.Number,
 			kube.Age(rev.Created), strings.Join(rev.Images, ", "))
 		if rev.Cause != "" {
-			line += s.Dim.Render("  — " + rev.Cause)
+			line += s.Dim.Render("  — " + clean(rev.Cause))
 		}
 		if i == r.cursor {
-			line = s.Selected.Render(fit(" "+strip(line), w-2))
+			line = s.Selected.Render(fit(" "+strip(line), w))
 		} else {
 			line = " " + line
 		}

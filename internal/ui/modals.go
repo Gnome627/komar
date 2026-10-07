@@ -17,13 +17,22 @@ type modal interface {
 	view(m *Model) string
 }
 
-// modalBox frames modal content.
-func (s Styles) modalBox(title string, lines []string, width int, danger bool) string {
+// modalBox frames modal content. The box grows to its widest line but
+// never past the window: what doesn't fit is cut, not drawn outside.
+func (m *Model) modalBox(title string, lines []string, width int, danger bool) string {
+	s := m.st
 	w := width
 	for _, l := range lines {
 		if lw := ansi.StringWidth(l) + 6; lw > w {
 			w = lw
 		}
+	}
+	w = max(min(w, m.w-2), 8)
+	if room := max(m.h-4, 1); len(lines) > room {
+		lines = lines[:room]
+	}
+	if tw := w - 5; ansi.StringWidth(title) > tw {
+		title = ansi.Truncate(title, tw, "…")
 	}
 	bs := s.ModalBorder
 	ts := s.AccentBold
@@ -67,12 +76,30 @@ func (c *confirmModal) update(m *Model, k tea.KeyPressMsg) (bool, tea.Cmd) {
 
 func (c *confirmModal) view(m *Model) string {
 	s := m.st
-	lines := []string{s.Bright.Render(c.question), ""}
-	for _, l := range strings.Split(c.body, "\n") {
-		lines = append(lines, s.Dim.Render(l))
+	textW := m.modalTextW(70)
+	var lines []string
+	for _, l := range wrap(c.question, textW) {
+		lines = append(lines, s.Bright.Render(l))
 	}
-	lines = append(lines, "", s.Key.Render("y")+s.KeyDesc.Render(" / enter  ")+s.Key.Render("n")+s.KeyDesc.Render(" / esc"))
-	return s.modalBox(c.title, lines, 46, c.danger)
+	lines = append(lines, "")
+	for _, l := range strings.Split(c.body, "\n") {
+		for _, wl := range wrap(l, textW) {
+			lines = append(lines, s.Dim.Render(wl))
+		}
+	}
+	keys := []string{"", s.Key.Render("y") + s.KeyDesc.Render(" / enter  ") + s.Key.Render("n") + s.KeyDesc.Render(" / esc")}
+	return m.modalBox(c.title, m.modalBody(lines, keys), 46, c.danger)
+}
+
+// modalTextW is how wide text inside a modal may be in this window.
+func (m *Model) modalTextW(limit int) int { return max(min(m.w-8, limit), 4) }
+
+// modalBody cuts long text so the keys under it stay on screen.
+func (m *Model) modalBody(text, keys []string) []string {
+	if room := max(m.h-4-len(keys), 1); len(text) > room {
+		text = append(text[:room-1:room-1], m.st.Dim.Render("…"))
+	}
+	return append(text, keys...)
 }
 
 // --- info ----------------------------------------------------------------
@@ -94,14 +121,12 @@ func (i *infoModal) update(m *Model, k tea.KeyPressMsg) (bool, tea.Cmd) {
 func (i *infoModal) view(m *Model) string {
 	s := m.st
 	var lines []string
-	maxW := min(max(m.w-12, 30), 90)
 	for _, l := range strings.Split(i.body, "\n") {
-		for _, wl := range strings.Split(ansi.Wordwrap(l, maxW, " /"), "\n") {
+		for _, wl := range strings.Split(ansi.Wrap(clean(l), m.modalTextW(90), " /"), "\n") {
 			lines = append(lines, s.Text.Render(wl))
 		}
 	}
-	lines = append(lines, "", s.KeyDesc.Render(i18n.T("misc.any_key")))
-	return s.modalBox(i.title, lines, 40, i.danger)
+	return m.modalBox(i.title, m.modalBody(lines, []string{"", s.KeyDesc.Render(i18n.T("misc.any_key"))}), 40, i.danger)
 }
 
 // --- scale ---------------------------------------------------------------
@@ -172,7 +197,7 @@ func (sm *scaleModal) view(m *Model) string {
 		"",
 		s.KeyDesc.Render(i18n.T("scale.hint")),
 	}
-	return s.modalBox(i18n.T("scale.title", ""), lines, 50, false)
+	return m.modalBox(i18n.T("scale.title", ""), lines, 50, false)
 }
 
 // --- picker --------------------------------------------------------------
@@ -254,10 +279,13 @@ func (p *pickerModal) update(m *Model, k tea.KeyPressMsg) (bool, tea.Cmd) {
 	return false, nil
 }
 
+// rows is how many items fit in this window.
+func (p *pickerModal) rows(m *Model) int { return min(max(m.h-7, 1), 14) }
+
 func (p *pickerModal) view(m *Model) string {
 	s := m.st
-	rows := min(max(m.h-12, 5), 14)
-	width := min(max(m.w/2, 40), 70)
+	rows := p.rows(m)
+	width := min(max(m.w/2, 40), 70, m.w-2)
 	if p.cursor < p.offset {
 		p.offset = p.cursor
 	}
@@ -284,7 +312,7 @@ func (p *pickerModal) view(m *Model) string {
 		lines = append(lines, "")
 	}
 	lines = append(lines, s.KeyDesc.Render(fmt.Sprintf("%d/%d · ↑↓ enter esc", min(p.cursor+1, len(p.filtered)), len(p.filtered))))
-	return s.modalBox(p.title, lines, width, false)
+	return m.modalBox(p.title, lines, width, false)
 }
 
 func strip(s string) string { return ansi.Strip(s) }
@@ -390,19 +418,30 @@ func (h *helpModal) view(m *Model) string {
 	s := m.st
 	sections := helpSections()
 	var lines []string
-	lines = append(lines, strings.Split(bannerSmall(m), "\n")...)
-	lines = append(lines, "")
+	textW := m.modalTextW(90)
+	if banner := strings.Split(bannerSmall(m), "\n"); lipWidth(banner[0]) <= textW {
+		lines = append(lines, banner...)
+		lines = append(lines, "")
+	}
+	// Descriptions wrap under themselves in a narrow window.
+	const keyW = 16
 	for _, sec := range sections {
 		lines = append(lines, s.AccentBold.Render(sec.title))
 		for _, kv := range sec.keys {
-			lines = append(lines, "  "+s.Key.Render(fit(kv[0], 16))+s.Text.Render(kv[1]))
+			for j, d := range wrap(kv[1], textW-2-keyW) {
+				key := ""
+				if j == 0 {
+					key = kv[0]
+				}
+				lines = append(lines, "  "+s.Key.Render(fit(key, keyW))+s.Text.Render(d))
+			}
 		}
 		lines = append(lines, "")
 	}
-	rows := max(m.h-6, 5)
+	rows := max(m.h-4, 1)
 	if h.top > max(len(lines)-rows, 0) {
 		h.top = max(len(lines)-rows, 0)
 	}
 	end := min(h.top+rows, len(lines))
-	return s.modalBox(i18n.T("help.title"), lines[h.top:end], 60, false)
+	return m.modalBox(i18n.T("help.title"), lines[h.top:end], 60, false)
 }

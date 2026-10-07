@@ -16,26 +16,34 @@ func lipWidth(s string) int { return ansi.StringWidth(s) }
 
 type geom struct {
 	leftW, rightW, bodyH  int
-	ctxH, nsH, resH, relH int
+	ctxH, nsH, resH, relH int // 0 hides the panel
 }
 
 // chromeH is the lines around the panels: the top bar, an empty line that
 // keeps the panels from sticking to it, and the bottom bar.
 const chromeH = 3
 
+// Below these sizes there is no room for everything at once.
+const (
+	minW, minH = 20, 6
+	twoColumnW = 80 // narrower windows show one column, the focused one
+)
+
+// single reports whether the window is too narrow for two columns: the
+// focused side then takes the whole width.
+func (m *Model) single() bool { return m.w < twoColumnW }
+
 func (m *Model) layout() geom {
-	g := geom{bodyH: max(m.h-chromeH, 8)}
-	g.leftW = m.w * 36 / 100
-	if g.leftW < 34 {
-		g.leftW = 34
+	g := geom{bodyH: max(m.h-chromeH, 1)}
+	switch {
+	case !m.single():
+		g.leftW = min(max(m.w*36/100, 34), 64)
+		g.rightW = m.w - g.leftW
+	case m.focus == fMain:
+		g.rightW = m.w
+	default:
+		g.leftW = m.w
 	}
-	if g.leftW > 64 {
-		g.leftW = 64
-	}
-	if m.w < 80 {
-		g.leftW = m.w / 2
-	}
-	g.rightW = m.w - g.leftW
 
 	n := max(len(m.contexts), 1)
 	if m.focus == fCtx {
@@ -49,19 +57,45 @@ func (m *Model) layout() geom {
 	} else {
 		g.nsH = min(n+2, 6)
 	}
-	rest := g.bodyH - g.ctxH - g.nsH
-	if m.relMode == relNone {
-		g.relH = 3
-	} else {
-		g.relH = max(rest*2/5, 5)
-		if m.focus == fRel {
-			g.relH = max(rest/2, 5)
+	// What the resources and their related list need to stay readable.
+	const minRes = 5
+	minRel := 3
+	if m.relMode != relNone {
+		minRel = 5
+	}
+	// In a short window the context and namespace panels give way first:
+	// both are in the top bar anyway, and 1 and 2 bring them back.
+	if g.bodyH-g.ctxH-g.nsH < minRes+minRel {
+		if m.focus != fCtx {
+			g.ctxH = 0
+		}
+		if m.focus != fNs {
+			g.nsH = 0
 		}
 	}
-	g.resH = rest - g.relH
-	if g.resH < 4 {
-		g.resH = 4
-		g.relH = max(rest-g.resH, 2)
+	rest := g.bodyH - g.ctxH - g.nsH
+	switch {
+	case rest < minRes && g.ctxH > 0:
+		g.ctxH, rest = g.bodyH, 0
+	case rest < minRes && g.nsH > 0:
+		g.nsH, rest = g.bodyH, 0
+	}
+	switch {
+	case rest == 0:
+	case rest < minRes+minRel && m.focus == fRel:
+		g.relH = rest
+	case rest < minRes+minRel:
+		g.resH = rest
+	default:
+		g.relH = minRel
+		if m.relMode != relNone {
+			g.relH = max(rest*2/5, minRel)
+			if m.focus == fRel {
+				g.relH = max(rest/2, minRel)
+			}
+		}
+		g.relH = min(g.relH, rest-minRes)
+		g.resH = rest - g.relH
 	}
 	return g
 }
@@ -78,7 +112,7 @@ func (m *Model) View() tea.View {
 	if m.ns != "" {
 		v.WindowTitle += "/" + m.ns
 	}
-	if !m.ready || m.w < 20 || m.h < 8 {
+	if !m.ready || m.w < minW || m.h < minH {
 		v.SetContent("komar…")
 		return v
 	}
@@ -91,20 +125,46 @@ func (m *Model) View() tea.View {
 		}
 	}
 	g := m.layout()
-	left := strings.Join([]string{
-		m.renderCtxPanel(g.leftW, g.ctxH),
-		m.renderNsPanel(g.leftW, g.nsH),
-		m.panelOrAnim(fRes, g.leftW, g.resH, m.renderResPanel),
-		m.panelOrAnim(fRel, g.leftW, g.relH, m.renderRelPanel),
-	}, "\n")
-	right := m.renderMain(g.rightW, g.bodyH)
-	body := joinColumns(left, right, g.leftW, g.rightW, g.bodyH)
-	screen := m.renderTopBar() + "\n\n" + body + "\n" + m.renderBottomBar()
+	m.hits = m.hits[:0]
+	var left []string
+	if g.leftW > 0 {
+		for _, p := range []struct {
+			h      int
+			render func(w, h int) string
+		}{
+			{g.ctxH, m.renderCtxPanel},
+			{g.nsH, m.renderNsPanel},
+			{g.resH, func(w, h int) string { return m.panelOrAnim(fRes, w, h, m.renderResPanel) }},
+			{g.relH, func(w, h int) string { return m.panelOrAnim(fRel, w, h, m.renderRelPanel) }},
+		} {
+			if p.h > 0 {
+				left = append(left, p.render(g.leftW, p.h))
+			}
+		}
+	}
+	right := ""
+	if g.rightW > 0 {
+		right = m.renderMain(g.rightW, g.bodyH)
+	}
+	body := joinColumns(strings.Join(left, "\n"), right, g.leftW, g.rightW, g.bodyH)
+	screen := m.renderTopBar() + "\n" + strings.Repeat(" ", m.w) + "\n" + body + "\n" + m.renderBottomBar()
+	if g.leftW > 0 && g.resH > 0 {
+		// ‹ Pods › in the title of the resources panel, after "╭─ [3] ".
+		y, name := chromeH-1+g.ctxH+g.nsH, lipWidth(m.kind().Name)
+		key := func(r rune) func(m *Model) tea.Cmd {
+			return func(m *Model) tea.Cmd {
+				return tea.Batch(m.setFocus(fRes), m.handleKey(tea.KeyPressMsg{Code: r, Text: string(r)}))
+			}
+		}
+		m.addHit(7, y, 2, key('['))
+		m.addHit(9, y, name, func(m *Model) tea.Cmd { return m.openKindPicker() })
+		m.addHit(9+name, y, 2, key(']'))
+	}
 
 	if m.cmd != nil {
 		popup, _ := m.cmd.view(m, m.w)
 		if len(popup) > 0 {
-			screen = overlayAt(screen, strings.Join(popup, "\n"), 11, m.h-1-len(popup))
+			screen = overlayAt(screen, strings.Join(popup, "\n"), min(11, max(m.w-lipWidth(popup[0]), 0)), m.h-1-len(popup))
 		}
 	}
 	if m.modal != nil {
@@ -143,36 +203,37 @@ func (m *Model) panelOrAnim(id, w, h int, render func(w, h int) string) string {
 // --- top bar -------------------------------------------------------------
 
 func (m *Model) renderTopBar() string {
+	// Each level gives up something less important than the context and
+	// the namespace; the last one shortens those two as well.
+	const levels = 6
+	sep := m.st.Muted.Render("  ")
+	for level := 0; level < levels; level++ {
+		left, r := m.topBar(level)
+		l := strings.Join(left, sep)
+		if gap := m.w - lipWidth(l) - lipWidth(r); gap >= 1 || level == levels-1 {
+			// The context and the namespace open their pickers on a click.
+			x := lipWidth(left[0]) + 2
+			m.addHit(x, 0, lipWidth(left[1]), func(m *Model) tea.Cmd { m.modal = m.contextPicker(); return nil })
+			x += lipWidth(left[1]) + 2
+			m.addHit(x, 0, lipWidth(left[2]), func(m *Model) tea.Cmd { m.modal = m.namespacePicker(); return nil })
+			if gap < 1 {
+				return fit(l, m.w)
+			}
+			return l + strings.Repeat(" ", gap) + r
+		}
+	}
+	return ""
+}
+
+// topBar builds the two halves of the top bar. Higher levels fit narrower
+// windows: 1 drops the user, 2 the server version, 3 the usage meters,
+// 4 shortens the names to what is left, 5 drops the clock for them.
+func (m *Model) topBar(level int) ([]string, string) {
 	s := m.st
-	var left []string
-	left = append(left, s.AccentBold.Render(" ▍komar"))
-	ctxSt := s.Bright
-	icon := s.Green.Render("⎈")
-	switch {
-	case m.connecting != "":
-		icon = s.Yellow.Render("◌")
-	case m.connErr != "":
-		icon = s.Red.Render("✗")
-	}
-	ctx := icon + " " + ctxSt.Render(m.ctxName)
-	if m.version != "" {
-		ctx += s.Dim.Render(" " + m.version)
-	}
-	left = append(left, ctx)
-	ns := m.ns
-	if ns == "" {
-		ns = i18n.T("ns.all")
-	}
-	left = append(left, s.Accent.Render("◆ ")+s.Text.Render(ns))
-	if m.user != "" {
-		left = append(left, s.Dim.Render("@"+m.user))
-	}
-	if m.connecting != "" {
-		left = append(left, s.Yellow.Render(i18n.T("status.connecting", m.connecting)))
-	}
+	sep := s.Muted.Render("  ")
 
 	var right []string
-	if m.usage != nil {
+	if m.usage != nil && level < 3 {
 		right = append(right, s.Dim.Render(i18n.T("top.cpu")+" ")+s.meter(m.usage.CPUPercent, 5)+s.Text.Render(fmt.Sprintf(" %2.0f%%", m.usage.CPUPercent)))
 		right = append(right, s.Dim.Render(i18n.T("top.mem")+" ")+s.meter(m.usage.MemPercent, 5)+s.Text.Render(fmt.Sprintf(" %2.0f%%", m.usage.MemPercent)))
 	}
@@ -181,16 +242,45 @@ func (m *Model) renderTopBar() string {
 	} else if m.events.loaded {
 		right = append(right, s.Green.Render("✓"))
 	}
-	right = append(right, s.Text.Render(time.Now().Format("15:04"))+" ")
-
-	sep := s.Muted.Render("  ")
-	l := strings.Join(left, sep)
-	r := strings.Join(right, sep)
-	gap := m.w - lipWidth(l) - lipWidth(r)
-	if gap < 1 {
-		return fit(l, m.w)
+	if level < 5 {
+		right = append(right, s.Text.Render(time.Now().Format("15:04")))
 	}
-	return l + strings.Repeat(" ", gap) + r
+	r := strings.Join(right, sep) + " "
+
+	ctxName, ns := m.ctxName, m.ns
+	if ns == "" {
+		ns = i18n.T("ns.all")
+	}
+	connecting := ""
+	if m.connecting != "" && level < 4 {
+		connecting = i18n.T("status.connecting", m.connecting)
+	}
+	if level >= 4 {
+		// " ▍komar  ⎈ ctx  ◆ ns" plus the gap before the right half.
+		room := m.w - lipWidth(r) - 18
+		nsW := min(lipWidth(ns), max(room/2, 6))
+		ns = shorten(ns, nsW)
+		ctxName = shorten(ctxName, max(room-nsW, 6))
+	}
+	icon := s.Green.Render("⎈")
+	switch {
+	case m.connecting != "":
+		icon = s.Yellow.Render("◌")
+	case m.connErr != "":
+		icon = s.Red.Render("✗")
+	}
+	ctx := icon + " " + s.Bright.Render(ctxName)
+	if m.version != "" && level < 2 {
+		ctx += s.Dim.Render(" " + m.version)
+	}
+	left := []string{s.AccentBold.Render(" ▍komar"), ctx, s.Accent.Render("◆ ") + s.Text.Render(ns)}
+	if m.user != "" && level < 1 {
+		left = append(left, s.Dim.Render("@"+m.user))
+	}
+	if connecting != "" {
+		left = append(left, s.Yellow.Render(connecting))
+	}
+	return left, r
 }
 
 // --- bottom bar ----------------------------------------------------------
@@ -226,9 +316,18 @@ func (m *Model) hints() string {
 		return en
 	}
 	var parts []string
+	back := k("esc", tr("back", "назад"))
+	if m.single() {
+		// A narrow window shows one column: say how to get to the other.
+		if m.focus == fMain {
+			parts = append(parts, back)
+		} else {
+			parts = append(parts, k("5", i18n.T(tabKeys[m.tab])))
+		}
+	}
 	switch m.focus {
 	case fCtx, fNs:
-		parts = []string{k("enter", tr("switch", "переключить")), k("/", tr("filter", "фильтр")), k("C N", tr("pickers", "выбор")), k(":", "kubectl")}
+		parts = append(parts, k("enter", tr("switch", "переключить")), k("/", tr("filter", "фильтр")), k("C N", tr("pickers", "выбор")))
 	case fRes, fRel:
 		t := m.target()
 		if t.kind.Resource == "pods" {
@@ -258,10 +357,25 @@ func (m *Model) hints() string {
 		default:
 			parts = []string{k("/", tr("search", "поиск")), k("n N", tr("match", "совпад.")), k("g G", tr("top/end", "начало/конец"))}
 		}
-		parts = append(parts, k("[ ]", tr("tab", "вкладка")), k("esc", tr("back", "назад")))
+		parts = append(parts, k("[ ]", tr("tab", "вкладка")))
+		if !m.single() {
+			parts = append(parts, back)
+		}
 	}
-	parts = append(parts, k(":", "kubectl"), k("?", tr("help", "помощь")))
-	return strings.Join(parts, s.Muted.Render(" · "))
+	// The way to everything else stays in sight however narrow the window:
+	// hints that don't fit go from the end, help never does.
+	sep := s.Muted.Render(" · ")
+	help := k("?", tr("help", "помощь"))
+	parts = append(parts, k(":", "kubectl"))
+	room := m.w - 2 - lipWidth(help)
+	var shown []string
+	for _, p := range parts {
+		if room -= lipWidth(p) + lipWidth(sep); room < 0 {
+			break
+		}
+		shown = append(shown, p)
+	}
+	return strings.Join(append(shown, help), sep)
 }
 
 // --- left panels ---------------------------------------------------------
@@ -558,6 +672,11 @@ func (m *Model) tableLines(t *kube.Table, rows []kube.Row, l *listState, w, h in
 			}
 		}
 		if drop < 0 {
+			// Only the columns that matter are left: the name, which keeps
+			// both of its ends when cut, gives up some more room first.
+			if used()+min(nameW, 12) <= w {
+				break
+			}
 			drop = len(cols) - 1
 		}
 		cols = append(cols[:drop], cols[drop+1:]...)
@@ -652,7 +771,7 @@ func (m *Model) renderCell(col, v string, w int, dots bool) string {
 		}
 		return s.Green.Render(fitLeft(v, w))
 	}
-	return s.Text.Render(fitLeft(v, w))
+	return s.Text.Render(fitLeft(clean(v), w))
 }
 
 // --- main panel ----------------------------------------------------------
@@ -660,7 +779,14 @@ func (m *Model) renderCell(col, v string, w int, dots bool) string {
 func (m *Model) renderMain(w, h int) string {
 	s := m.st
 	focused := m.focus == fMain
+	// The title starts after "╭─ [5] "; tabs in it switch on a click.
+	x0, y0 := m.layout().leftW+7, chromeH-1
+	tab := func(i int) func(m *Model) tea.Cmd {
+		return func(m *Model) tea.Cmd { m.tab = i; return tea.Batch(m.setFocus(fMain), m.loadTab(false)) }
+	}
 	var tabs []string
+	var spots []hit
+	x := x0
 	for i, k := range tabKeys {
 		label := i18n.T(k)
 		if i == m.tab {
@@ -668,12 +794,25 @@ func (m *Model) renderMain(w, h int) string {
 		} else {
 			tabs = append(tabs, s.TabIdle.Render(label))
 		}
+		spots = append(spots, hit{x - 1, y0, lipWidth(label) + 2, tab(i)})
+		x += lipWidth(label) + 3
 	}
 	num := s.Dim.Render("[5]")
 	if focused {
 		num = s.AccentBold.Render("[5]")
 	}
 	title := num + " " + strings.Join(tabs, s.Muted.Render(" │ "))
+	if lipWidth(title) > w-8 {
+		// No room for every tab: show the current one and where it is.
+		label := i18n.T(tabKeys[m.tab])
+		title = num + s.Muted.Render(" ‹ ") + s.TabActive.Render(label) + s.Muted.Render(" › ") +
+			s.Dim.Render(fmt.Sprintf("%d/%d", m.tab+1, tabCount))
+		spots = []hit{
+			{x0 - 1, y0, 3, tab((m.tab + tabCount - 1) % tabCount)},
+			{x0 + 2 + lipWidth(label), y0, 3, tab((m.tab + 1) % tabCount)},
+		}
+	}
+	m.hits = append(m.hits, spots...)
 	innerW := w - 2
 	ch := h - 2
 	var lines []string

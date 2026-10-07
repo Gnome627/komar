@@ -26,6 +26,7 @@ type eventsView struct {
 	group    kube.GroupBy
 	cursor   int
 	offset   int
+	shown    int // rows drawn last time, for the mouse
 }
 
 func newEventsView() eventsView {
@@ -153,22 +154,42 @@ func (e *eventsView) render(m *Model, w, h int) []string {
 	}
 	var out []string
 	if e.err != "" {
-		out = append(out, s.Red.Render(" "+e.err))
+		out = errLines(s, e.err, w)
 	}
 	if len(e.groups) == 0 {
 		return append(out, "", s.Dim.Render("  "+i18n.T("events.none")))
 	}
+	// Columns go as the panel narrows, so the message always has room: the
+	// sparkline and the rate first, then the count.
 	const sparkW = 15
 	reasonW, objW := 18, 30
-	if w < 110 {
+	showSpark, showCount := w >= 84, w >= 56
+	switch {
+	case w < 56:
+		reasonW, objW = 12, 14
+	case w < 90:
+		reasonW, objW = 14, 16
+	case w < 110:
 		objW = 22
 	}
-	if w < 90 {
-		reasonW, objW = 14, 16
+	header := " " + fit("", 2) + fit("REASON", reasonW) + " " + fit("OBJECT", objW) + " "
+	if showCount {
+		header += fitLeft("COUNT", 6) + "  "
 	}
-	header := " " + fit("", 2) + fit("REASON", reasonW) + " " + fit("OBJECT", objW) + " " + fitLeft("COUNT", 6) + "  " +
-		fit("30m", sparkW) + " " + fitLeft("RATE", 8) + " " + fitLeft("LAST", 5) + "  MESSAGE"
-	out = append(out, s.Header.Render(fit(header, w-2)))
+	if showSpark {
+		header += fit("30m", sparkW) + " " + fitLeft("RATE", 8) + " "
+	}
+	header += fitLeft("LAST", 5) + "  MESSAGE"
+	out = append(out, s.Header.Render(fit(header, w)))
+	// A message cut by the column is shown whole under the list.
+	var detail []string
+	if e.cursor < len(e.groups) && m.focus == fMain && h >= 8 {
+		if msg := clean(e.groups[e.cursor].Message); lipWidth(header)-len("MESSAGE")+lipWidth(msg) > w {
+			detail = wrap(msg, w-2)
+			detail = detail[:min(len(detail), 3)]
+			h -= len(detail) + 1
+		}
+	}
 	rows := h - len(out)
 	if e.cursor < e.offset {
 		e.offset = e.cursor
@@ -222,14 +243,27 @@ func (e *eventsView) render(m *Model, w, h int) []string {
 		if g.Count >= 100 {
 			countSt = s.Bright
 		}
-		line := " " + icon + reasonSt.Render(fit(g.Reason, reasonW)) + " " + s.Cyan.Render(fit(obj, objW)) + " " +
-			countSt.Render(fitLeft("×"+fmt.Sprint(g.Count), 6)) + "  " + sparkSt.Render(spark(bins, peak)) + " " +
-			rateSt.Render(fitLeft(i18n.T("events.rate", rate), 8)) + " " + s.Dim.Render(fitLeft(kube.Age(g.Last), 5)) + "  " +
-			s.Text.Render(strings.ReplaceAll(g.Message, "\n", " "))
+		line := " " + icon + reasonSt.Render(fit(g.Reason, reasonW)) + " " + s.Cyan.Render(fit(obj, objW)) + " "
+		if showCount {
+			line += countSt.Render(fitLeft("×"+fmt.Sprint(g.Count), 6)) + "  "
+		}
+		if showSpark {
+			line += sparkSt.Render(spark(bins, peak)) + " " + rateSt.Render(fitLeft(i18n.T("events.rate", rate), 8)) + " "
+		}
+		line += s.Dim.Render(fitLeft(kube.Age(g.Last), 5)) + "  " + s.Text.Render(clean(g.Message))
 		if i == e.cursor && m.focus == fMain {
-			line = s.Selected.Render(fit(strip(line), w-2))
+			line = s.Selected.Render(fit(strip(line), w))
 		}
 		out = append(out, line)
+	}
+	e.shown = min(len(e.groups)-e.offset, max(rows, 0))
+	if detail != nil {
+		for len(out) <= h {
+			out = append(out, "")
+		}
+		for _, l := range detail {
+			out = append(out, " "+s.Text.Render(l))
+		}
 	}
 	return out
 }

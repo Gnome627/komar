@@ -4,6 +4,8 @@ import (
 	"image/color"
 	"math"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -92,32 +94,90 @@ func (s Styles) statusStyle(v string) (lipgloss.Style, bool) {
 
 // --- layout helpers -------------------------------------------------------
 
+// oneLine keeps a line a line: a stray newline, carriage return or tab
+// inside it would move the terminal cursor and tear the frame around it.
+var oneLine = strings.NewReplacer("\r\n", " ", "\n", " ", "\r", " ", "\t", " ")
+
 // fit truncates or pads s (which may contain ANSI) to exactly w cells.
 func fit(s string, w int) string {
 	if w <= 0 {
 		return ""
 	}
+	if strings.ContainsAny(s, "\n\r\t") {
+		s = oneLine.Replace(s)
+	}
 	sw := ansi.StringWidth(s)
 	if sw > w {
-		return ansi.Truncate(s, w, "…")
+		// Cutting through a wide rune leaves the line a cell short.
+		s = ansi.Truncate(s, w, "…")
+		sw = ansi.StringWidth(s)
 	}
-	return s + strings.Repeat(" ", w-sw)
+	return s + strings.Repeat(" ", max(w-sw, 0))
 }
 
 // fitLeft right-aligns s in w cells.
 func fitLeft(s string, w int) string {
-	sw := ansi.StringWidth(s)
-	if sw > w {
-		return ansi.Truncate(s, w, "…")
+	if sw := ansi.StringWidth(s); sw < w {
+		return strings.Repeat(" ", w-sw) + s
 	}
-	return strings.Repeat(" ", w-sw) + s
+	return fit(s, w)
+}
+
+// clean makes text from the cluster safe to lay out: tabs become spaces,
+// control characters go, and so do the invisible format runes (joiners,
+// variation selectors, bidi marks) that terminals measure differently
+// from each other, which shifts everything after them on the line.
+func clean(s string) string {
+	plain := true
+	for i := 0; i < len(s); i++ {
+		if c := s[i]; c < 0x20 || c > 0x7e {
+			plain = false
+			break
+		}
+	}
+	if plain {
+		return s
+	}
+	s = strings.TrimRight(s, "\r\n")
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		switch {
+		case r == '\t':
+			b.WriteString("    ")
+		case r == '\n' || r == '\r':
+			b.WriteByte(' ')
+		case unicode.IsControl(r), unicode.Is(unicode.Cf, r), unicode.Is(unicode.Variation_Selector, r), r == utf8.RuneError:
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// wrap breaks s into lines of at most w cells, on spaces where it can and
+// through a word where it can't.
+func wrap(s string, w int) []string {
+	return strings.Split(ansi.Wrap(clean(s), max(w, 1), " "), "\n")
+}
+
+// shorten cuts s to at most w cells keeping both ends, without padding.
+func shorten(s string, w int) string {
+	if ansi.StringWidth(s) <= w {
+		return s
+	}
+	return strings.TrimRight(midTrunc(s, max(w, 1)), " ")
 }
 
 // box draws a rounded panel of exactly w×h with titles embedded in the top
 // border (lazygit style) and an optional footer in the bottom border.
 func (s Styles) box(w, h int, title, right, footer string, focused bool, lines []string) string {
 	if w < 4 || h < 2 {
-		return strings.Repeat("\n", max(h-1, 0))
+		blank := make([]string, max(h, 0))
+		for i := range blank {
+			blank[i] = strings.Repeat(" ", max(w, 0))
+		}
+		return strings.Join(blank, "\n")
 	}
 	bs := s.BorderBlur
 	if focused {
@@ -287,5 +347,16 @@ func overlayAt(bg, fg string, x, y int) string {
 		lipgloss.NewLayer(bg),
 		lipgloss.NewLayer(fg).X(x).Y(y).Z(1),
 	)
-	return c.Render()
+	// The compositor drops trailing blanks and grows with a layer that
+	// sticks out; the result has to stay the size of bg.
+	w, h := lipgloss.Size(bg)
+	lines := strings.Split(c.Render(), "\n")
+	for len(lines) < h {
+		lines = append(lines, "")
+	}
+	lines = lines[:h]
+	for i, l := range lines {
+		lines[i] = fit(l, w)
+	}
+	return strings.Join(lines, "\n")
 }

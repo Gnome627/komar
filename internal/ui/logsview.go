@@ -8,6 +8,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/gnome627/komar/internal/i18n"
@@ -188,7 +189,7 @@ func (l *logView) onBatch(m *Model, msg logBatchMsg) tea.Cmd {
 			l.sources = append(l.sources, src)
 			l.srcIdx[src] = idx
 		}
-		e := logEntry{src: idx, text: ansi.Strip(ln.Text), err: ln.Err, t: ln.Time}
+		e := logEntry{src: idx, text: clean(ansi.Strip(ln.Text)), err: ln.Err, t: ln.Time}
 		// Streams from several pods arrive in chunks (each starts with its
 		// own backlog); merge them by timestamp like stern does.
 		pos := len(l.lines)
@@ -433,6 +434,11 @@ func (l *logView) render(m *Model, w, h int) []string {
 	for _, src := range l.sources {
 		containers[src.container] = true
 	}
+	// The pod column shrinks in a narrow panel to leave the text some room.
+	nameW := 18
+	if w < 60 {
+		nameW = 8
+	}
 	prefixW := 0
 	prefix := func(e logEntry) string {
 		if !multi || e.src >= len(l.sources) {
@@ -443,13 +449,10 @@ func (l *logView) render(m *Model, w, h int) []string {
 		if len(containers) > 1 {
 			name += "/" + src.container
 		}
-		if len(name) > 18 {
-			name = name[:18]
-		}
-		return srcColors[e.src%len(srcColors)](s)(fit(name, 18)) + s.Muted.Render(" │ ")
+		return srcColors[e.src%len(srcColors)](s)(fit(name, nameW)) + s.Muted.Render(" │ ")
 	}
 	if multi {
-		prefixW = 21
+		prefixW = nameW + 3
 	}
 	textW := max(w-2-prefixW, 10)
 
@@ -466,21 +469,24 @@ func (l *logView) render(m *Model, w, h int) []string {
 		default:
 			body = s.Text.Render(e.text)
 		}
-		var rows []string
-		if l.wrap && ansi.StringWidth(e.text) > textW {
-			wrapped := strings.Split(ansi.Hardwrap(body, textW, true), "\n")
-			for j, r := range wrapped {
-				p := prefix(e)
-				if j > 0 && multi {
-					p = strings.Repeat(" ", 18) + s.Muted.Render(" ┆ ")
-				}
-				rows = append(rows, " "+p+r)
-			}
-		} else {
-			rows = append(rows, " "+prefix(e)+ansi.Truncate(body, textW, "…"))
-		}
+		mark := " "
 		if i == l.matchAt && l.re != nil && !l.filter && !l.follow {
-			rows[0] = s.Yellow.Render("▌") + rows[0][1:]
+			mark = s.Yellow.Render("▌")
+		}
+		if !l.wrap || ansi.StringWidth(e.text) <= textW {
+			return []string{mark + prefix(e) + ansi.Truncate(body, textW, "…")}
+		}
+		// lipgloss.Wrap closes the colors at the end of each row and opens
+		// them again on the next one, so a highlight cut by the wrap doesn't
+		// spill over the padding and the border.
+		var rows []string
+		for j, r := range strings.Split(lipgloss.Wrap(body, textW, ""), "\n") {
+			p := prefix(e)
+			if j > 0 && multi {
+				p = strings.Repeat(" ", nameW) + s.Muted.Render(" ┆ ")
+			}
+			rows = append(rows, mark+p+r)
+			mark = " "
 		}
 		return rows
 	}

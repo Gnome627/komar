@@ -68,6 +68,13 @@ func helpSections() []helpSection {
 				{"j k", "выбрать ревизию"},
 				{"enter", "откатить на ревизию"},
 			}},
+			{"Мышь", [][2]string{
+				{"клик", "выбрать панель, строку или вкладку"},
+				{"двойной клик", "то же, что enter"},
+				{"‹ ›", "другой тип ресурса или вкладка"},
+				{"верхняя строка", "выбор контекста и неймспейса"},
+				{"колесо", "прокрутка того, что под курсором"},
+			}},
 		}
 	}
 	return []helpSection{
@@ -123,6 +130,13 @@ func helpSections() []helpSection {
 		{"Rollout (main panel)", [][2]string{
 			{"j k", "choose revision"},
 			{"enter", "roll back to it"},
+		}},
+		{"Mouse", [][2]string{
+			{"click", "choose a panel, a row or a tab"},
+			{"double click", "same as enter"},
+			{"‹ ›", "another resource kind or tab"},
+			{"top bar", "pick context and namespace"},
+			{"wheel", "scroll what is under the pointer"},
 		}},
 	}
 }

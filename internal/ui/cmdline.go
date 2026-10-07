@@ -533,12 +533,18 @@ func (c *cmdLine) view(m *Model, w int) (popup []string, line string) {
 		ctxInfo += s.Dim.Render(" -n " + m.ns)
 	}
 	avail := w - lipWidth(label) - lipWidth(ctxInfo) - 3
+	if avail < 24 {
+		// Typing matters more than the reminder of where it will run.
+		ctxInfo = ""
+		avail = w - lipWidth(label) - 2
+	}
 	line = label + c.edit.View(s, avail)
 	line = fit(line, w-lipWidth(ctxInfo)-1) + ctxInfo + " "
-	if len(c.sugg) == 0 {
+	// The popup sits above the prompt and has to fit under the top bar.
+	maxRows := min(8, m.h-7)
+	if len(c.sugg) == 0 || maxRows < 1 || w < 24 {
 		return nil, line
 	}
-	maxRows := 8
 	start := 0
 	if c.suggIdx >= maxRows {
 		start = c.suggIdx - maxRows + 1
@@ -548,7 +554,7 @@ func (c *cmdLine) view(m *Model, w int) (popup []string, line string) {
 	for _, sg := range c.sugg {
 		width = max(width, len([]rune(sg))+4)
 	}
-	width = min(width, w-14)
+	width = max(min(width, w-14), 8)
 	bs := s.BorderFocused
 	popup = append(popup, bs.Render("╭"+strings.Repeat("─", width)+"╮"))
 	for i := start; i < len(c.sugg) && i < start+maxRows; i++ {
