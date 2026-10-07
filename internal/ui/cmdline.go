@@ -416,6 +416,9 @@ func (m *Model) runCmdLine(line string) tea.Cmd {
 	full := m.injectFlags(args)
 	display := "kubectl " + strings.Join(full, " ")
 	if shell.Interactive(args) {
+		if m.openWindow(display, full) {
+			return nil
+		}
 		cmd, err := shell.Command(nil, m.cl.KubectlEnv(), full...)
 		if err != nil {
 			m.setError(err.Error())

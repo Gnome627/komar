@@ -37,7 +37,7 @@ func helpSections() []helpSection {
 			{"Действия с выбранным", [][2]string{
 				{"enter", "под: шелл в отдельном окне; остальное: открыть"},
 				{"x", "шелл пода в отдельном окне"},
-				{"b  B", "kubectl debug (ephemeral-контейнер) здесь / в новом окне"},
+				{"b", "kubectl debug (ephemeral-контейнер) в отдельном окне"},
 				{"d", "удалить (с эффектом)"},
 				{"D", "удалить принудительно (grace 0)"},
 				{"s", "изменить число реплик"},
@@ -93,7 +93,7 @@ func helpSections() []helpSection {
 		{"Actions on the selection", [][2]string{
 			{"enter", "pod: shell in its own window; others: drill in"},
 			{"x", "pod shell in its own window"},
-			{"b  B", "kubectl debug (ephemeral container) here / new window"},
+			{"b", "kubectl debug (ephemeral container) in its own window"},
 			{"d", "delete (with an effect)"},
 			{"D", "force delete (grace 0)"},
 			{"s", "scale"},

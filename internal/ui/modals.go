@@ -86,7 +86,7 @@ type infoModal struct {
 func (i *infoModal) update(m *Model, k tea.KeyPressMsg) (bool, tea.Cmd) {
 	if i.debugHint && hotkey(k) == "b" {
 		// From the "no shell" hint: jump straight to a debug container.
-		return true, m.startDebug(m.target(), false)
+		return true, m.startDebug(m.target())
 	}
 	return true, nil
 }

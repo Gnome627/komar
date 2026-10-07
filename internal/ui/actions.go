@@ -47,7 +47,6 @@ type scaleInfoMsg struct {
 type execCheckMsg struct {
 	gen        int
 	t          target
-	newWin     bool
 	debug      bool
 	allowed    bool
 	reason     string
@@ -461,27 +460,27 @@ func (m *Model) startExec(t target) tea.Cmd {
 		m.setError(i18n.T("exec.no_pod"))
 		return nil
 	}
-	return m.checkAccess(pod, true, false)
+	return m.checkAccess(pod, false)
 }
 
-func (m *Model) startDebug(t target, newWin bool) tea.Cmd {
+func (m *Model) startDebug(t target) tea.Cmd {
 	pod, ok := m.execPod(t)
 	if !ok || m.cl == nil {
 		m.setError(i18n.T("debug.not_pod"))
 		return nil
 	}
-	return m.checkAccess(pod, newWin, true)
+	return m.checkAccess(pod, true)
 }
 
 // checkAccess asks the API server whether we may exec (or attach an
 // ephemeral debug container) before trying, so a missing permission is
 // reported plainly instead of as a cryptic kubectl error.
-func (m *Model) checkAccess(t target, newWin, debug bool) tea.Cmd {
+func (m *Model) checkAccess(t target, debug bool) tea.Cmd {
 	cl, gen := m.cl, m.gen
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		msg := execCheckMsg{gen: gen, t: t, newWin: newWin, debug: debug}
+		msg := execCheckMsg{gen: gen, t: t, debug: debug}
 		verb, sub := "create", "exec"
 		if debug {
 			verb, sub = "patch", "ephemeralcontainers"
@@ -523,9 +522,9 @@ func (m *Model) onExecCheck(msg execCheckMsg) tea.Cmd {
 	run := func(m *Model, container string) tea.Cmd {
 		t.container = container
 		if msg.debug {
-			return m.askDebugImage(t, msg.newWin)
+			return m.askDebugImage(t)
 		}
-		return m.runExec(t, msg.newWin)
+		return m.runExec(t)
 	}
 	if t.container == "" && len(msg.containers) > 1 {
 		m.modal = &pickerModal{id: "container", title: i18n.T("exec.pick_container"), items: msg.containers,
@@ -536,7 +535,7 @@ func (m *Model) onExecCheck(msg execCheckMsg) tea.Cmd {
 	return run(m, t.container)
 }
 
-func (m *Model) askDebugImage(t target, newWin bool) tea.Cmd {
+func (m *Model) askDebugImage(t target) tea.Cmd {
 	m.prompt = &prompt{
 		label: i18n.T("debug.image") + ":",
 		edit:  newLineEdit(m.conf.DebugImage),
@@ -546,31 +545,41 @@ func (m *Model) askDebugImage(t target, newWin bool) tea.Cmd {
 				return nil
 			}
 			args := shell.DebugArgs(m.ctxName, t.ns, t.name, t.container, img)
-			return m.runInteractive(t, args, newWin, true)
+			return m.runInteractive(t, args, true)
 		},
 	}
 	return nil
 }
 
-func (m *Model) runExec(t target, newWin bool) tea.Cmd {
-	return m.runInteractive(t, shell.ExecArgs(m.ctxName, t.ns, t.name, t.container), newWin, false)
+func (m *Model) runExec(t target) tea.Cmd {
+	return m.runInteractive(t, shell.ExecArgs(m.ctxName, t.ns, t.name, t.container), false)
 }
 
-// runInteractive runs kubectl with the terminal: in a new terminal window,
-// or here (komar steps aside until it exits) when that isn't asked for or
-// no terminal emulator can be found.
-func (m *Model) runInteractive(t target, args []string, newWin, debug bool) tea.Cmd {
+// openWindow runs kubectl in its own floating terminal window, so komar
+// stays on screen next to it. Everything that needs the terminal goes
+// there: shells, debug containers, editors, port-forwards. It reports
+// false when no terminal emulator can be found; the caller then runs the
+// command in place.
+func (m *Model) openWindow(label string, args []string) bool {
 	k, err := shell.Kubectl()
 	if err != nil {
-		m.setError(err.Error())
-		return nil
+		return false
 	}
-	if term, err := shell.FindTerminal(); newWin && err == nil {
-		if err := term.Launch(m.cl.KubectlEnv(), append([]string{k}, args...)); err != nil {
-			m.setError(err.Error())
-			return nil
-		}
-		m.setStatus("↗ " + t.name + " — " + i18n.T("exec.new_window") + " (" + term.Name + ")")
+	term, err := shell.FindTerminal()
+	if err != nil {
+		return false
+	}
+	if err := term.Launch(m.cl.KubectlEnv(), append([]string{k}, args...)); err != nil {
+		return false
+	}
+	m.setStatus("↗ " + label + " — " + i18n.T("exec.new_window") + " (" + term.Name + ")")
+	return true
+}
+
+// runInteractive runs kubectl with the terminal: in its own window, or
+// here (komar steps aside until it exits) when no window can be opened.
+func (m *Model) runInteractive(t target, args []string, debug bool) tea.Cmd {
+	if m.openWindow(t.name, args) {
 		return nil
 	}
 	cmd, err := shell.Command(nil, m.cl.KubectlEnv(), args...)

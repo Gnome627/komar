@@ -826,10 +826,8 @@ func (m *Model) handleTargetKey(k tea.KeyPressMsg) (tea.Cmd, bool) {
 		return nil, true
 	case "x", "X", "ctrl+enter", "ctrl+j":
 		return m.startExec(t), true
-	case "b":
-		return m.startDebug(t, false), true
-	case "B":
-		return m.startDebug(t, true), true
+	case "b", "B":
+		return m.startDebug(t), true
 	case "d", "delete":
 		return m.requestDelete(t, false), true
 	case "D", "shift+delete":
