@@ -107,3 +107,76 @@ func TestViewRoundTrip(t *testing.T) {
 		t.Errorf("out of range view applied: tab=%d focus=%d last=%d", n.tab, n.focus, n.lastFocus)
 	}
 }
+
+func podRows(names ...string) []kube.Row {
+	rows := make([]kube.Row, len(names))
+	for i, n := range names {
+		rows[i] = kube.Row{Namespace: "api", Name: n, UID: "uid-" + n, Failed: strings.HasPrefix(n, "evicted")}
+	}
+	return rows
+}
+
+func TestFailedPodsDeleteWithoutAsking(t *testing.T) {
+	m := &Model{
+		cl: &kube.Cluster{}, kinds: append([]kube.Kind{}, kube.Builtin...),
+		hidden: map[string]time.Time{}, dying: map[string]*dyingRow{},
+		resTable: &kube.Table{Rows: podRows("evicted-a", "web")},
+	}
+	if cmd := m.requestDelete(m.resTarget(), false); cmd == nil {
+		t.Fatal("a failed pod should be deleted right away")
+	}
+	if m.modal != nil {
+		t.Error("a failed pod should not ask for confirmation")
+	}
+	if _, gone := m.hidden["uid-evicted-a"]; !gone {
+		t.Error("the deleted pod should leave the list")
+	}
+	// A healthy pod still goes through the access check and the question.
+	if got, _ := m.selectedRes(); got.Name != "web" {
+		t.Fatalf("cursor on %q, want web", got.Name)
+	}
+	before := len(m.hidden)
+	m.requestDelete(m.resTarget(), false)
+	if len(m.hidden) != before {
+		t.Error("a healthy pod was deleted without the check")
+	}
+}
+
+func TestDyingRows(t *testing.T) {
+	m := &Model{
+		kinds:  append([]kube.Kind{}, kube.Builtin...),
+		hidden: map[string]time.Time{}, dying: map[string]*dyingRow{},
+		resTable: &kube.Table{Rows: podRows("evicted-a", "evicted-b", "web", "worker")},
+		resList:  listState{cursor: 2},
+	}
+	m.dying["uid-evicted-a"] = &dyingRow{panel: fRes}
+	m.dying["uid-evicted-b"] = &dyingRow{panel: fRes}
+	if m.requestDelete(target{kind: m.kind(), name: "evicted-a", uid: "uid-evicted-a"}, false) != nil {
+		t.Error("deleting a row that is already going should do nothing")
+	}
+
+	// The server has already dropped both pods; they stay until buried.
+	fresh := &kube.Table{Rows: podRows("web", "worker")}
+	m.keepDying(m.resTable, fresh, fRes)
+	m.resTable = fresh
+	if got := len(m.resRows()); got != 4 {
+		t.Fatalf("%d rows after refresh, want the 2 dying ones kept (4)", got)
+	}
+	if got, _ := m.selectedRes(); got.Name != "web" {
+		t.Fatalf("cursor on %q after refresh, want web", got.Name)
+	}
+
+	m.bury("uid-evicted-a")
+	m.bury("uid-evicted-b")
+	if got, _ := m.selectedRes(); got.Name != "web" || len(m.resRows()) != 2 {
+		t.Errorf("after burying: cursor on %q, %d rows; want web, 2", got.Name, len(m.resRows()))
+	}
+
+	// Burying the row under the cursor at the end of the list.
+	m.resList.cursor = 1
+	m.dying["uid-worker"] = &dyingRow{panel: fRes}
+	m.bury("uid-worker")
+	if got, ok := m.selectedRes(); !ok || got.Name != "web" {
+		t.Errorf("cursor fell off the list: %q %v", got.Name, ok)
+	}
+}

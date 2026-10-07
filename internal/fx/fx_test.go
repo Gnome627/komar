@@ -84,3 +84,26 @@ func TestSplash(t *testing.T) {
 		}
 	}
 }
+
+// Effects composed over a live block must leave the other rows readable
+// and follow their own row when it moves.
+func TestComposeKeepsOtherRows(t *testing.T) {
+	lines := strings.Split(sample, "\n")
+	w, h := ansi.StringWidth(lines[0]), len(lines)
+	plain := strings.Split(ansi.Strip(Compose(sample, w, h, nil)), "\n")
+	for _, name := range Names {
+		a := New(name, sample, w, h, []Rect{{X: 1, Y: 3, W: w - 2, H: 1}}, Rect{X: 1, Y: 1, W: w - 2, H: h - 2}, theme.RGBSet{})
+		for !a.Done() {
+			a.Step(1.0 / 40)
+			out := strings.Split(ansi.Strip(Compose(sample, w, h, []Layer{{Anim: a, DY: 1}})), "\n")
+			for _, y := range []int{0, 1, 2, 3, 5, h - 1} {
+				if out[y] != plain[y] {
+					t.Fatalf("%s at %.2fs: line %d was painted over:\n%s", name, a.t, y, out[y])
+				}
+			}
+			if strings.Contains(out[4], "api-gateway-cm22n") && a.t > 1.5 {
+				t.Fatalf("%s at %.2fs: the moved target row is still there", name, a.t)
+			}
+		}
+	}
+}

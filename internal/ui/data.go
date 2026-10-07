@@ -355,6 +355,7 @@ func (m *Model) handleData(msg tea.Msg) tea.Cmd {
 		}
 		prev, hadPrev := m.selectedRes()
 		m.resErr = ""
+		m.keepDying(m.resTable, msg.t, fRes)
 		m.resTable = msg.t
 		rows := m.resRows()
 		// Keep the cursor on the same object across refreshes.
@@ -397,6 +398,7 @@ func (m *Model) handleData(msg tea.Msg) tea.Cmd {
 			if r, ok := m.selectedRel(); ok {
 				prev = r.Key()
 			}
+			m.keepDying(m.relTable, msg.t, fRel)
 			m.relTable = msg.t
 			if prev != "" {
 				for i, r := range m.relRows() {

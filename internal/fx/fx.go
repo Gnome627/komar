@@ -361,20 +361,54 @@ func (a *Anim) spawn(p *particle) {
 	}
 }
 
-// Render draws the current frame as a styled string of W×H cells.
+// Render draws the current frame over the block the effect started on.
 func (a *Anim) Render() string {
-	cv := lipgloss.NewCanvas(a.W, a.H)
-	cv.Compose(lipgloss.NewLayer(a.base))
-	blank := func(x, y int) { cv.SetCell(x, y, &uv.Cell{Content: " ", Width: 1}) }
-	for _, r := range a.clear {
-		for y := r.Y; y < r.Y+r.H; y++ {
-			for x := r.X; x < r.X+r.W; x++ {
-				blank(x, y)
+	return Compose(a.base, a.W, a.H, []Layer{{Anim: a}})
+}
+
+// Layer is a running effect placed over a freshly rendered block. DY is
+// how many rows its targets have moved since the effect started.
+type Layer struct {
+	Anim *Anim
+	DY   int
+}
+
+// Compose draws the effects over base (w×h cells), so the block underneath
+// stays live while rows in it burn away. An effect paints its own rows and
+// the empty lines of the block, never a line that holds something else:
+// sparks fly through the free space, the other rows stay untouched.
+func Compose(base string, w, h int, layers []Layer) string {
+	cv := lipgloss.NewCanvas(w, h)
+	cv.Compose(lipgloss.NewLayer(base))
+	for _, l := range layers {
+		for _, r := range l.Anim.clear {
+			for y := r.Y; y < r.Y+r.H; y++ {
+				for x := r.X; x < r.X+r.W; x++ {
+					cv.SetCell(x, y+l.DY, &uv.Cell{Content: " ", Width: 1})
+				}
 			}
 		}
 	}
+	// Lines free for drawing: empty ones and the rows being destroyed.
+	free := make([]bool, h)
+	for y := range free {
+		free[y] = true
+		for x := 1; x < w-1 && free[y]; x++ {
+			if c := cv.CellAt(x, y); c != nil && c.Content != "" && c.Content != " " {
+				free[y] = false
+			}
+		}
+	}
+	for _, l := range layers {
+		l.Anim.draw(cv, l.DY, free)
+	}
+	return padLines(cv.Render(), w, h)
+}
+
+func (a *Anim) draw(cv *lipgloss.Canvas, dy int, free []bool) {
 	set := func(x, y int, ch string, c theme.RGB, bold bool) {
-		if !a.area.contains(x, y) {
+		y += dy
+		if !a.area.contains(x, y) || y < 0 || y >= len(free) || !free[y] {
 			return
 		}
 		st := uv.Style{Fg: c.Color()}
@@ -499,9 +533,6 @@ func (a *Anim) Render() string {
 		k := pt.age / pt.life
 		set(int(math.Round(pt.x)), int(math.Round(pt.y)), pt.ch, theme.Lerp(pt.from, pt.to, k), pt.bold && k < 0.5)
 	}
-
-	out := cv.Render()
-	return padLines(out, a.W, a.H)
 }
 
 func padLines(s string, w, h int) string {

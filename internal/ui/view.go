@@ -133,10 +133,7 @@ func joinColumns(left, right string, lw, rw, h int) string {
 }
 
 func (m *Model) panelOrAnim(id, w, h int, render func(w, h int) string) string {
-	if a, ok := m.anims[id]; ok && a.w == w && a.h == h {
-		return a.anim.Render()
-	}
-	return render(w, h)
+	return m.overlayDying(id, w, h, render(w, h))
 }
 
 // --- top bar -------------------------------------------------------------

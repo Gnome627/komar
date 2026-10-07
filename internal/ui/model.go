@@ -100,6 +100,7 @@ type target struct {
 	uid       string
 	owners    []metav1.OwnerReference
 	container string
+	failed    bool // a pod that is gone for good (Evicted, Error…)
 }
 
 func (t target) valid() bool { return t.name != "" }
@@ -116,11 +117,16 @@ type containerItem struct {
 	init     bool
 }
 
-type activeAnim struct {
+// dyingRow is a deleted row that stays in its list while its effect plays.
+type dyingRow struct {
 	anim  *fx.Anim
 	panel int
-	w, h  int
+	y     int // line of the row inside the panel when the effect started
 }
+
+// deleteFxSpeed plays the delete effects faster than their own clock, so a
+// row is out of the way soon.
+const deleteFxSpeed = 1.5
 
 // Options configure the program from flags.
 type Options struct {
@@ -201,7 +207,7 @@ type Model struct {
 	statusAt  time.Time
 
 	hidden map[string]time.Time
-	anims  map[int]*activeAnim
+	dying  map[string]*dyingRow
 	splash *fx.Splash
 
 	framing    bool
@@ -233,7 +239,7 @@ func New(opts Options) (*Model, error) {
 		contexts: ctxs, focus: fRes, lastFocus: fRes,
 		kinds:     append([]kube.Kind{}, kube.Builtin...),
 		hidden:    map[string]time.Time{},
-		anims:     map[int]*activeAnim{},
+		dying:     map[string]*dyingRow{},
 		nameCache: map[string][]string{},
 		describe:  textView{},
 		events:    newEventsView(),
@@ -389,7 +395,7 @@ func (m *Model) resTarget() target {
 	if !ok {
 		return target{}
 	}
-	return target{kind: m.kind(), ns: rowNS(r, m.ns), name: r.Name, uid: r.UID, owners: r.Owners}
+	return target{kind: m.kind(), ns: rowNS(r, m.ns), name: r.Name, uid: r.UID, owners: r.Owners, failed: r.Failed}
 }
 
 // target is what actions apply to: the related panel's item when it has
@@ -407,7 +413,7 @@ func (m *Model) target() target {
 				if m.relMode == relJobs {
 					k, _ = m.findKind("jobs")
 				}
-				return target{kind: k, ns: rowNS(r, t.ns), name: r.Name, uid: r.UID, owners: r.Owners}
+				return target{kind: k, ns: rowNS(r, t.ns), name: r.Name, uid: r.UID, owners: r.Owners, failed: r.Failed}
 			}
 		case relContainers:
 			if m.relList.cursor < len(m.relContainers) {
@@ -504,10 +510,10 @@ func (m *Model) onFrame() tea.Cmd {
 			active = true
 		}
 	}
-	for id, a := range m.anims {
-		a.anim.Step(dt)
-		if a.anim.Done() {
-			delete(m.anims, id)
+	for uid, d := range m.dying {
+		d.anim.Step(dt * deleteFxSpeed)
+		if d.anim.Done() {
+			m.bury(uid)
 		} else {
 			active = true
 		}
@@ -568,7 +574,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.splash = fx.NewSplash(m.w, m.h, "kubernetes · omarchy", m.pal.RGB)
 		}
 		// Animations are drawn at a fixed size; drop them on resize.
-		m.anims = map[int]*activeAnim{}
+		for uid := range m.dying {
+			m.bury(uid)
+		}
 		return m, nil
 	case tea.KeyPressMsg:
 		return m, m.handleKey(msg)

@@ -70,9 +70,19 @@ func kindLabel(t target) string { return strings.ToLower(t.kind.KindName) }
 // requestDelete checks RBAC first (so a doomed delete doesn't play its
 // effect), then asks for confirmation, except for pods whose controller
 // keeps more than one replica: those come back on their own.
+//
+// Failed pods (Evicted, Error, ContainerStatusUnknown…) skip all of that:
+// they are leftovers, and there are often dozens to clear, so d deletes
+// right away and moves on to the next row.
 func (m *Model) requestDelete(t target, force bool) tea.Cmd {
 	if !t.valid() || m.cl == nil {
 		return nil
+	}
+	if _, already := m.dying[t.uid]; already {
+		return nil
+	}
+	if t.failed && t.kind.Resource == "pods" {
+		return m.doDelete(t, force)
 	}
 	cl, gen := m.cl, m.gen
 	return func() tea.Msg {
@@ -144,24 +154,38 @@ func (m *Model) panelOf(t target) int {
 
 func (m *Model) doDelete(t target, force bool) tea.Cmd {
 	panel := m.panelOf(t)
-	m.startDeleteEffect(panel)
-	if t.uid != "" {
+	if !m.startDeleteEffect(t, panel) && t.uid != "" {
 		m.hidden[t.uid] = time.Now()
 	}
 	cl, gen := m.cl, m.gen
-	return tea.Batch(m.startFrames(), func() tea.Msg {
+	cmds := []tea.Cmd{m.startFrames(), func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 		err := cl.Delete(ctx, t.kind, t.ns, t.name, force)
 		return actionMsg{gen: gen, op: "delete", t: t, err: err, panel: panel,
 			ok: i18n.T("delete.ok", kindLabel(t), t.name)}
-	})
+	}}
+	// The row stays in place while it burns; step past it so the next d
+	// lands on the next row.
+	if _, burning := m.dying[t.uid]; burning {
+		switch panel {
+		case fRes:
+			m.resList.move(1, len(m.resRows()))
+			cmds = append(cmds, m.onSelectionChanged())
+		case fRel:
+			m.relList.move(1, m.relLen())
+			cmds = append(cmds, m.loadTab(false))
+		}
+	}
+	return tea.Batch(cmds...)
 }
 
-// startDeleteEffect snapshots the panel and animates the selected row away.
-func (m *Model) startDeleteEffect(panel int) {
-	if m.conf.DisableEffects || !m.ready {
-		return
+// startDeleteEffect animates the selected row away, in place: the row
+// keeps its line in the list until the effect ends (see bury) and the rest
+// of the panel stays live. It reports whether an effect was started.
+func (m *Model) startDeleteEffect(t target, panel int) bool {
+	if m.conf.DisableEffects || !m.ready || t.uid == "" {
+		return false
 	}
 	g := m.layout()
 	var w, h, rowY int
@@ -176,14 +200,98 @@ func (m *Model) startDeleteEffect(panel int) {
 		base = m.renderRelPanel(w, h)
 		rowY = 2 + m.relList.cursor - m.relList.offset
 	default:
-		return
+		return false
 	}
 	if rowY < 1 || rowY >= h-1 {
-		return
+		return false
 	}
 	name := fx.Pick(m.conf.Effects)
 	a := fx.New(name, base, w, h, []fx.Rect{{X: 1, Y: rowY, W: w - 2, H: 1}}, fx.Rect{X: 1, Y: 1, W: w - 2, H: h - 2}, m.pal.RGB)
-	m.anims[panel] = &activeAnim{anim: a, panel: panel, w: w, h: h}
+	m.dying[t.uid] = &dyingRow{anim: a, panel: panel, y: rowY}
+	return true
+}
+
+// panelList is the table and list state behind a panel that can hold
+// dying rows.
+func (m *Model) panelList(panel int) (*kube.Table, *listState) {
+	if panel == fRel {
+		if m.relMode != relPods && m.relMode != relJobs {
+			return nil, &m.relList
+		}
+		return m.relTable, &m.relList
+	}
+	return m.resTable, &m.resList
+}
+
+// bury takes a dying row out of its list, keeping the cursor on the object
+// it was on (the rows below move up by one).
+func (m *Model) bury(uid string) {
+	d, ok := m.dying[uid]
+	if !ok {
+		return
+	}
+	delete(m.dying, uid)
+	t, l := m.panelList(d.panel)
+	rows := m.visibleRows(t, l.filter)
+	selected := ""
+	if l.cursor >= 0 && l.cursor < len(rows) && rows[l.cursor].UID != uid {
+		selected = rows[l.cursor].UID
+	}
+	m.hidden[uid] = time.Now()
+	left := m.visibleRows(t, l.filter)
+	for i, r := range left {
+		if r.UID == selected {
+			l.cursor = i
+		}
+	}
+	l.cursor = max(min(l.cursor, len(left)-1), 0)
+}
+
+// keepDying carries rows whose effect is still playing over to a fresh
+// table: the server drops a deleted pod at once, and without this the row
+// would vanish mid-effect.
+func (m *Model) keepDying(old, fresh *kube.Table, panel int) {
+	if old == nil || fresh == nil || len(m.dying) == 0 {
+		return
+	}
+	have := make(map[string]bool, len(fresh.Rows))
+	for _, r := range fresh.Rows {
+		have[r.UID] = true
+	}
+	for i, r := range old.Rows {
+		d, ok := m.dying[r.UID]
+		if !ok || d.panel != panel || have[r.UID] {
+			continue
+		}
+		at := min(i, len(fresh.Rows))
+		fresh.Rows = append(fresh.Rows[:at], append([]kube.Row{r}, fresh.Rows[at:]...)...)
+	}
+}
+
+// overlayDying draws the running delete effects over a freshly rendered
+// panel.
+func (m *Model) overlayDying(panel, w, h int, base string) string {
+	if len(m.dying) == 0 {
+		return base
+	}
+	t, l := m.panelList(panel)
+	rows := m.visibleRows(t, l.filter)
+	var layers []fx.Layer
+	for i, r := range rows {
+		d, ok := m.dying[r.UID]
+		if !ok || d.panel != panel || d.anim.W != w || d.anim.H != h {
+			continue
+		}
+		y := 2 + i - l.offset
+		if y < 2 || y >= h-1 {
+			continue
+		}
+		layers = append(layers, fx.Layer{Anim: d.anim, DY: y - d.y})
+	}
+	if len(layers) == 0 {
+		return base
+	}
+	return fx.Compose(base, w, h, layers)
 }
 
 // --- scale ---------------------------------------------------------------
@@ -303,7 +411,7 @@ func (m *Model) onAction(msg actionMsg) tea.Cmd {
 	}
 	if msg.err != nil {
 		if msg.op == "delete" {
-			delete(m.anims, msg.panel)
+			delete(m.dying, msg.t.uid)
 			delete(m.hidden, msg.t.uid)
 		}
 		if kube.IsForbidden(msg.err) {

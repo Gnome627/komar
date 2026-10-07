@@ -200,8 +200,11 @@ type Row struct {
 	Cells     []string
 	Created   time.Time
 	Deleting  bool
-	Labels    map[string]string
-	Owners    []metav1.OwnerReference
+	// Failed marks a pod in the Failed phase (Evicted, Error,
+	// ContainerStatusUnknown…): it will never run again.
+	Failed bool
+	Labels map[string]string
+	Owners []metav1.OwnerReference
 }
 
 // Key identifies a row across refreshes.
@@ -278,7 +281,43 @@ func (cl *Cluster) ListTable(ctx context.Context, k Kind, opts ListOptions) (*Ta
 		}
 		t.Rows = append(t.Rows, row)
 	}
+	if k.Group == "" && k.Resource == "pods" {
+		failed := cl.failedPods(ctx, opts)
+		for i := range t.Rows {
+			t.Rows[i].Failed = failed[t.Rows[i].UID]
+		}
+	}
 	return t, nil
+}
+
+// failedPods returns the UIDs of pods in the Failed phase. The table the
+// server prints only has a status word, which can't tell a pod that is
+// gone for good from one that is between restarts, so this asks for the
+// phase with a metadata-only listing (cheap: no specs, no statuses).
+func (cl *Cluster) failedPods(ctx context.Context, opts ListOptions) map[string]bool {
+	sel := "status.phase=Failed"
+	if opts.FieldSelector != "" {
+		sel = opts.FieldSelector + "," + sel
+	}
+	req := cl.Clientset.Discovery().RESTClient().Get().AbsPath(apiPath(Builtin[0], opts.Namespace)).
+		SetHeader("Accept", "application/json;as=PartialObjectMetadataList;v=v1;g=meta.k8s.io").
+		Param("fieldSelector", sel)
+	if opts.LabelSelector != "" {
+		req = req.Param("labelSelector", opts.LabelSelector)
+	}
+	raw, err := req.DoRaw(ctx)
+	if err != nil {
+		return nil
+	}
+	var list metav1.PartialObjectMetadataList
+	if err := json.Unmarshal(raw, &list); err != nil {
+		return nil
+	}
+	out := make(map[string]bool, len(list.Items))
+	for _, it := range list.Items {
+		out[string(it.UID)] = true
+	}
+	return out
 }
 
 func apiPath(k Kind, ns string) string {
