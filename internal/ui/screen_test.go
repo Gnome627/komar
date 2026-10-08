@@ -289,3 +289,21 @@ func TestMouse(t *testing.T) {
 		t.Errorf("click on › in a narrow window: tab=%d", m.tab)
 	}
 }
+
+func TestWheelStepsOneRow(t *testing.T) {
+	defer i18n.Set(i18n.Current())
+	i18n.Set(i18n.EN)
+	m := screenModel()
+	m.focus, m.w, m.h = fCtx, 120, 30
+	m.resList.cursor = 0
+	x, y := find(t, m, "web")
+	before := m.resList.cursor
+	m.handleWheel(tea.MouseWheelMsg{X: x, Y: y, Button: tea.MouseWheelDown})
+	if got := m.resList.cursor - before; got != 1 {
+		t.Fatalf("one wheel step moved the list by %d rows, want 1", got)
+	}
+	m.handleWheel(tea.MouseWheelMsg{X: x, Y: y, Button: tea.MouseWheelUp})
+	if m.resList.cursor != before {
+		t.Fatalf("wheel up should come back to row %d, got %d", before, m.resList.cursor)
+	}
+}

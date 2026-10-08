@@ -134,17 +134,19 @@ func (m *Model) clickModal(x, y int) tea.Cmd {
 	return p.onPick(m, p.filtered[i])
 }
 
+// handleWheel moves lists one item per wheel step and scrolls text three
+// lines.
 func (m *Model) handleWheel(msg tea.MouseWheelMsg) tea.Cmd {
-	d := 3
+	d := 1
 	if msg.Button == tea.MouseWheelUp {
-		d = -3
+		d = -1
 	}
 	switch p := m.modal.(type) {
 	case *pickerModal:
 		p.cursor = min(max(p.cursor+d, 0), max(len(p.filtered)-1, 0))
 		return nil
 	case *helpModal:
-		p.top = max(p.top+d, 0)
+		p.top = max(p.top+3*d, 0)
 		return nil
 	}
 	if m.modal != nil || m.splash != nil {
@@ -157,17 +159,27 @@ func (m *Model) handleWheel(msg tea.MouseWheelMsg) tea.Cmd {
 	}
 	switch panel {
 	case fMain:
-		m.scrollMain(d)
+		if m.tab == tabEvents || m.tab == tabRollout {
+			m.scrollMain(d) // these tabs are lists
+		} else {
+			m.scrollMain(3 * d)
+		}
 	case fCtx:
 		m.ctxList.move(d, len(m.contexts))
 	case fNs:
 		m.nsList.move(d, len(m.nsItems))
 	case fRes:
+		before := m.resList.cursor
 		m.resList.move(d, len(m.resRows()))
-		return m.onSelectionChanged()
+		if m.resList.cursor != before {
+			return m.onSelectionChanged()
+		}
 	case fRel:
+		before := m.relList.cursor
 		m.relList.move(d, m.relLen())
-		return m.loadTab(false)
+		if m.relList.cursor != before {
+			return m.loadTab(false)
+		}
 	}
 	return nil
 }
